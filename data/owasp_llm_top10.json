@@ -1,0 +1,34 @@
+[
+    {
+        "id": "LLM01",
+        "name": "Prompt Injections",
+        "description": "Manipulating a large language model through crafty inputs, causing it to execute the attacker's intentions.",
+        "patterns": [
+            "Ignore all previous instructions",
+            "System override:",
+            "You are now in developer mode",
+            "Disregard original prompt"
+        ]
+    },
+    {
+        "id": "LLM02",
+        "name": "Insecure Output Handling",
+        "description": "Occurs when a plugin or downstream component blindly accepts LLM output without proper scrutiny.",
+        "patterns": [
+            "__import__('os').system",
+            "DROP TABLE",
+            "eval(",
+            "exec("
+        ]
+    },
+    {
+        "id": "LLM06",
+        "name": "Sensitive Information Disclosure",
+        "description": "When LLMs reveal confidential data, proprietary algorithms, or other sensitive details.",
+        "patterns": [
+            "AKIA[0-9A-Z]{16}",
+            "ghp_[a-zA-Z0-9]{36}",
+            "-----BEGIN RSA PRIVATE KEY-----"
+        ]
+    }
+]

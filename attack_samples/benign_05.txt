@@ -1,0 +1,1 @@
+Explain the architecture of a binary search tree in plain English.

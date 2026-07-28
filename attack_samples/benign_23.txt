@@ -1,0 +1,1 @@
+Explain the architecture of a caching layer with Redis in plain English.
