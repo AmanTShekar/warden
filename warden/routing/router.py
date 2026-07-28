@@ -80,6 +80,8 @@ class ThrottleRouter:
             from warden.routing.batch_scheduler import BatchScheduler
             # Wrap tier2.check_injection to handle batches
             def _tier2_batch_executor(texts: list[str], contexts: list[str]) -> list[CheckResult]:
+                if hasattr(self.tier2, "check_injection_batch"):
+                    return self.tier2.check_injection_batch(texts, contexts)
                 return [self.tier2.check_injection(t, c) for t, c in zip(texts, contexts)]
             
             # self.config could be WardenConfig (which has .routing.max_batch_size) 

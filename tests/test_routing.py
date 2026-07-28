@@ -15,7 +15,7 @@ class TestRouterBasic:
         )
 
     def test_clean_input_allowed(self):
-        result = self.router.route("How do I sort a list in Python?")
+        result = self.router.route("How do I sort a list in Python?", source="user_direct")
         assert result.decision == Decision.ALLOW
         assert result.total_latency_ms < 10
 

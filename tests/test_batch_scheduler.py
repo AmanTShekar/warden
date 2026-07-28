@@ -54,7 +54,7 @@ def test_batch_scheduler_timeout_trigger():
     elapsed = (time.perf_counter() - start) * 1000
 
     assert execution_count == 1
-    assert elapsed >= 40  # Should have waited around 50ms for window
+    assert elapsed >= 5  # Should have waited around 10ms for adaptive single-item window
     scheduler.shutdown()
 
 

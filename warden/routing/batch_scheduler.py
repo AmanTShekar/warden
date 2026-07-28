@@ -82,12 +82,20 @@ class BatchScheduler:
                 self._queue = self._queue[self.max_batch_size:]
                 self._thread_pool.submit(self._execute_batch, batch_to_run)
             
-            # Otherwise, ensure a timer is running
-            elif self._dispatch_timer is None:
-                self._dispatch_timer = threading.Timer(
-                    self.batch_window_ms, self._dispatch_on_timeout
-                )
-                self._dispatch_timer.start()
+            # Otherwise, adaptive timer
+            else:
+                current_window = 0.01 if queue_len == 1 else self.batch_window_ms
+                
+                # If a second item arrives, expand the window to wait for more
+                if queue_len == 2 and self._dispatch_timer is not None:
+                    self._dispatch_timer.cancel()
+                    self._dispatch_timer = None
+                    
+                if self._dispatch_timer is None:
+                    self._dispatch_timer = threading.Timer(
+                        current_window, self._dispatch_on_timeout
+                    )
+                    self._dispatch_timer.start()
 
         # Block until result is ready (or timeout)
         try:
