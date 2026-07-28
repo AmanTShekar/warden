@@ -32,9 +32,9 @@
 - [x] Test suite — Tier 0 tests (injections, secrets, benign, latency) + routing tests
 - [x] Cloud GPU setup script (`scripts/setup_cloud.sh`)
 - [x] README rewritten as proper project README
-- [ ] GPU validation on Radeon Cloud — **NEXT**
-- [ ] Dockerfile
-- [ ] Initial git commit + push
+- [x] GPU validation on Radeon Cloud — **NEXT**
+- [x] Dockerfile
+- [x] Initial git commit + push
 
 ### ✅ Sprint 1 — Tier 0 + Tier 1 + Attack Samples (Jul 29 AM)
 - [x] Expand attack samples (sophisticated injections, vulnerable diffs)
@@ -77,9 +77,10 @@
 - [x] Live stats + integration demo
 - [x] demo_final.sh / proof pipeline
 
-### 🔲 Sprint 8 — GPU Integration (Aug 2)
-- [ ] Full GPU inference with Qwen2.5-Coder on Radeon Cloud
-- [ ] Benchmark framework (power, latency, accuracy)
+### ✅ Sprint 8 — GPU Integration (Aug 2)
+- [x] Full GPU inference with Qwen2.5-Coder on Radeon Cloud
+- [x] Integration with ROCm llama-cpp-python
+- [x] Telemetry pipeline (benchmarking script)
 
 ### 🔲 Sprint 9 — Benchmarks (Aug 3)
 - [ ] Full benchmark suite (3 scenarios)

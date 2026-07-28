@@ -136,7 +136,7 @@ def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="warden",
-        description="🛡️ Warden — Adaptive security guard for AI coding agents",
+        description="Warden - Adaptive security guard for AI coding agents",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
 
