@@ -4,8 +4,7 @@ import gradio as gr
 from typing import Dict, Any
 
 from warden.config import WardenConfig, Decision
-from warden.orchestrator import WardenOrchestrator
-from warden.tiers.base import GuardResult
+from warden.orchestrator import WardenOrchestrator, GuardResult
 
 def build_dashboard(orchestrator: WardenOrchestrator) -> gr.Blocks:
     """Builds the Gradio UI for Warden."""
