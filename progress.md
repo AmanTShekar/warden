@@ -20,7 +20,7 @@
 - [x] Tier 1 classifier skeleton — HuggingFace transformers loader (not pytector)
 - [x] Tier 2 LLM skeleton — llama-cpp-python with structured prompts
 - [x] Routing engine (`ThrottleRouter`) — full cascade with graceful degradation
-- [x] Trust classifier
+- [-] Trust classifier (Descoped)
 - [x] Policy engine — YAML loader + rule evaluation + shadow mode
 - [x] Diff guard skeleton — Semgrep integration
 - [x] CaMeL interpreter — quarantine_content, plan_with_refs, check_tool_call
@@ -77,8 +77,8 @@
 - [x] Live stats + integration demo
 - [x] demo_final.sh / proof pipeline
 
-### ✅ Sprint 8 — GPU Integration (Aug 2)
-- [x] Full GPU inference with Qwen2.5-Coder on Radeon Cloud
+### 🔲 Sprint 8 — GPU Integration (Aug 2)
+- [ ] Full GPU inference with Qwen2.5-Coder on Radeon Cloud (Needs Cloud Run)
 - [x] Integration with ROCm llama-cpp-python
 - [x] Telemetry pipeline (benchmarking script)
 
@@ -119,16 +119,10 @@ of July 28, 2026.
   instance but a true background sweeper daemon is not yet wired.
 
 ### CI / Validation
-- **Grammar (GBNF) tests skip on dev host.** `llama-cpp-python` is not
-  installed locally; `test_tier2_grammar.py` is skipped via `pytest.mark.skipif`.
-  Must run on AMD Cloud GPU host.
 - **No AMD GPU locally.** All ROCm optimizations (KV cache Q8, adaptive
   offload, flash-attn, physical-core thread pinning) are code-complete but
   unvalidated against `rocm-smi` telemetry. `measure_power.py` is the harness;
   needs a cloud run.
-- **Tier 1 mock test skipped.** `test_tier1_real.py::test_tier1_real_model`
-  requires the `protectai/deberta-v3-base-prompt-injection-v2` model download
-  on first run; flaky on CI without HF cache.
 
 ### Benchmark Credibility
 - **SHA-256 manifest implemented** (`scripts/sha256_manifest.py`) — 104
@@ -140,10 +134,4 @@ of July 28, 2026.
   degradation on non-ROCm hosts. Tested on dev (4 tests) but not yet run
   on actual GPU.
 
-### Tier Defenses
-- **Tier 0 combined regex.** Individual patterns (injection, secret,
-  SQLi, shell) work; a single combined regex that fires once per input
-  (vs. iterating patterns) is a planned micro-optimization.
-- **TrustClassifier wire-or-delete.** Currently wired in router but
-  effectively a pass-through; either train a real trust signal or remove
-  to keep the architecture honest.
+
