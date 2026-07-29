@@ -55,10 +55,10 @@
 - [x] Feedback loop (learn from user overrides)
 - [x] Memory tests (`test_router_memory.py`)
 
-### ✅ Sprint 4 — Policy + CaMeL (Jul 30 PM)
+### ✅ Sprint 4 — Policy + CaMeL (Jul 30 PM) — *CaMeL descoped, see Sprint 0 Known Gaps*
 - [x] Policy test suite (`test_policy.py`)
-- [x] CaMeL end-to-end test (`test_camel.py`)
-- [x] **CaMeL GO/NO-GO decision gate**
+- [x] CaMeL capability tracker (`check_tool_call`) + tests (`test_camel.py`)
+- [x] **CaMeL GO/NO-GO decision gate** → GO for capability tracker, NO-GO for dual-LLM split (now descoped)
 - [x] Phase 1 checkpoint: all tests green
 
 ### ✅ Sprint 5 — Routing Engine (Jul 31)
@@ -109,11 +109,18 @@ Tracked honestly so judges can see what's tested vs. what's claimed. Updated as
 of July 28, 2026.
 
 ### Architecture / Routing
-- **P-LLM / Q-LLM split not implemented.** CaMeL interpreter exists
-  (`warden/camel/interpreter.py`) with quarantine, plan_with_refs, and
-  tool-call checking, but the full two-LLM privileged/unprivileged split
-  described in `plan.md` is descoped. Single-model + Tier 1 classifier is
-  the shipped path. Documented as "future work" per plan.md fallback.
+- **P-LLM / Q-LLM split OFFICIALLY DESCOPED.** The dual-LLM
+  privileged-quarantined-LLM architecture described in `plan.md`
+  was prototyped but never wired into the router cascade. As of
+  this session, the dead code (`quarantine_content`, `plan_with_refs`,
+  `LabeledRef`, `EXTRACT_ONLY` enum) was removed. The data-flow
+  capability tracker (`CaMeLInterpreter.check_tool_call`) is the
+  shipped subset and is wired into `WardenOrchestrator.guard_tool_call`.
+  The router's phantom "Trusted User Input → routing to P-LLM" auto-allow
+  was reframed honestly as a user-direct fast-path (saves Tier 1/2
+  latency when Tier 0 passes — the real reason it existed).
+  `enable_camel` flag flipped to `False`; CaMeL capability tracker still
+  works via the orchestrator, not the descoped dual-LLM path.
 - **Cross-process sweep not implemented.** `PatternTracker` auto-block
   works in-process; audit-log `is_known_blocked` is queried per-router
   instance but a true background sweeper daemon is not yet wired.

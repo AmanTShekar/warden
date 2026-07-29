@@ -17,7 +17,7 @@ class GuardResult:
     is_safe: bool
     decision: Decision
     explanation: str
-    action: str = ""  # 'block', 'allow', 'extract_only', 'log_only'
+    action: str = ""  # 'block', 'allow', 'log_only'
     extracted_data: Optional[Dict] = None
 
 
@@ -32,7 +32,7 @@ class WardenOrchestrator:
     - Code Commits (diffs before applying)
     
     Modes:
-    - ACTIVE: Enforces blocks and data extraction (CaMeL)
+    - ACTIVE: Enforces blocks and policy-based data-flow checks (CaMeL capability tracker)
     - SHADOW: Logs everything, allows everything (for enterprise onboarding)
     - REPORT: (Future) offline analysis mode
     """
@@ -94,8 +94,8 @@ class WardenOrchestrator:
 
     def guard_tool_call(self, tool_name: str, args: Dict[str, Any], context: str = "") -> GuardResult:
         """
-        Intercept a tool call before execution by the P-LLM.
-        Applies data flow analysis (CaMeL) and Policy Rules.
+        Intercept a tool call before execution by the LLM.
+        Applies the CaMeL capability tracker (data-flow / policy enforcement).
         """
         logger.info(f"[Orchestrator] Guarding tool call: {tool_name}")
         

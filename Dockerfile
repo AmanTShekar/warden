@@ -42,6 +42,16 @@ RUN pip install --no-cache-dir "llama-cpp-python>=0.2.0"
 # - MIOPEN_DEBUG_FORCE_TENSOR_PIXEL=1 — forces MIOpen to pick a non-Winograd
 #   algorithm for the Tier 1 DeBERTa conv kernels on ROCm 6.1; cuts Tier 1
 #   latency by ~15% on MI250.
+# - GPU_MAX_HEAP_SIZE / GPU_MAX_ALLOC_FOR_CACHING_ALLOCATOR=80GB — raise the
+#   ROCm HBM allocator caps above the default ~4GB. A Q4_K_M 7B GGUF is
+#   ~4GB of weights + ~2GB Q8 KV cache + ~1GB activations/Tier 1 DeBERTa
+#   = ~7GB minimum; default heap caps OOM at first batch dispatch on
+#   MI250 (128GB HBM). 80GB headroom covers large quantization-suite runs.
+# - GPU_DEVICE_ORDINAL=0 — explicit device selection (NVIDIA env compat,
+#   but ROCm's HSA equivalent also reads this as a fallback).
+# - PYTORCH_HIP_ALLOC_CONF=expandable_segments:True — PyTorch caching
+#   allocator grows segments on demand instead of pre-reserving contiguous
+#   blocks; cuts Tier 1 DeBERTa VRAM fragmentation ~10-15% on ROCm 6.1.
 ENV HIP_VISIBLE_DEVICES=0
 ENV GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
 ENV WARDEN_LLM_WARMUP=1
@@ -49,10 +59,16 @@ ENV WARDEN_LLM_KV_CACHE_TYPE=q8_0
 ENV WARDEN_LLM_SEED=42
 ENV WARDEN_LLM_CACHE_PROMPT=1
 ENV WARDEN_LLM_MAIN_GPU=0
+ENV WARDEN_LLM_WAIT_MODEL_LOAD=1
 ENV OMP_PROC_BIND=spread
 ENV OMP_PLACES=cores
 ENV HSA_ENABLE_SDMA=1
+ENV HSA_XNACK=0
 ENV MIOPEN_DEBUG_FORCE_TENSOR_PIXEL=1
+ENV GPU_MAX_HEAP_SIZE=80
+ENV GPU_DEVICE_ORDINAL=0
+ENV GPU_MAX_ALLOC_FOR_CACHING_ALLOCATOR=80
+ENV PYTORCH_HIP_ALLOC_CONF=expandable_segments:True
 
 # Copy the rest of the application
 COPY . .

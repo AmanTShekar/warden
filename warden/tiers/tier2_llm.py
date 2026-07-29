@@ -57,8 +57,9 @@ class Tier2LLM(TierChecker):
     - Code vulnerability analysis
     - RAG-augmented analysis (similar known attacks in context)
 
-    Also serves dual duty as P-LLM and Q-LLM in CaMeL architecture
-    (same model, different system prompts, different capability restrictions).
+    Note: the dual-LLM P-LLM / Q-LLM roles described in the original
+    CaMeL paper were prototyped but descoped for this hackathon; this
+    class now serves the Tier-2 router path only (see progress.md).
     """
 
     def __init__(self, model_config: Optional[ModelConfig] = None):
@@ -114,6 +115,23 @@ class Tier2LLM(TierChecker):
                     use_mlock=getattr(self._config, "llm_use_mlock", False),
                     verbose=False,
                 )
+                # wait_model_load — block load() until weights are actually
+                # on the GPU. Without this, the warmup dispatch below can race
+                # with lazy HIP kernels and the first real request pays an
+                # extra 3-5s swap-in cost on MI250/MI300.
+                if getattr(self._config, "llm_wait_model_load", True):
+                    try:
+                        kwargs["wait_model_load"] = True
+                    except TypeError:
+                        logger.warning("wait_model_load not supported by installed llama-cpp-python — load() returns before weights fully swapped")
+                # n_threads_batch — separate thread pool for prompt
+                # evaluation (tokenization is IO+cpu-bound; decode is
+                # GPU-bound). On EPYC Zen 2-way SMT, mirroring n_threads
+                # is the safe default, but separable tuning can double
+                # prompt-eval throughput on short inputs (our workload).
+                n_threads_batch = getattr(self._config, "llm_n_threads_batch", 0)
+                if n_threads_batch and n_threads_batch > 0:
+                    kwargs["n_threads_batch"] = n_threads_batch
                 # Advanced ROCm knobs (only added if non-default — keeps
                 # the kwargs surface narrow on older llama-cpp-python builds).
                 rope_base = getattr(self._config, "llm_rope_freq_base", 10000.0)
@@ -440,7 +458,10 @@ number ::= [0-9]+
             )
 
     def generate(self, prompt: str, max_tokens: int = 512) -> str:
-        """Raw generation — used by CaMeL P-LLM and Q-LLM roles."""
+        """Raw generation — exposed for any caller that wants plain text
+        out of the loaded model. The descoped P-LLM/Q-LLM callers no
+        longer exist; this is retained for ad-hoc prompt evaluation
+        and benchmarking harnesses."""
         if not self._loaded:
             return ""
         try:

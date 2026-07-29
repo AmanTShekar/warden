@@ -69,7 +69,9 @@ class RoutingConfig:
 class ModelConfig:
     """Configuration for LLM models."""
 
-    # Tier 2 / P-LLM / Q-LLM model (same model, different roles)
+    # Tier 2 model (semantically used by router when Tier 1 is uncertain;
+    # also reused by the descoped CaMeL capability tracker for tool-call
+    # data-flow checks — see warden/camel/interpreter.py).
     llm_model_path: str = ""
     llm_n_gpu_layers: int = -1      # -1 = offload all layers to GPU
     llm_n_gpu_layers_fallback: int = 20  # Used if -1 fails (large Q8 model on small VRAM)
@@ -94,6 +96,8 @@ class ModelConfig:
     llm_use_mlock: bool = False            # Lock weights in RAM (prevents swap; enable on cloud if RAM ample)
     llm_cache_prompt: bool = True         # Reuse KV across semantically-equal prompts (audit loop / batch scheduler)
     llm_split_mode: str = "layer"         # 'layer' | 'row' for multi-GPU split (layer is default & cache-friendly)
+    llm_wait_model_load: bool = True       # Block load() until weights fully on GPU (avoids warmup race)
+    llm_n_threads_batch: int = 0           # Separate thread count for prompt-eval (0 = mirror n_threads; nonzero → parallel tokenize)
 
     # AMD TokenFactory API Integration (Optional Cloud Endpoint Mode)
     tokenfactory_endpoint: str = ""
@@ -128,7 +132,7 @@ class WardenConfig:
     attack_samples_path: str = "attack_samples"
 
     # Feature flags
-    enable_camel: bool = True       # Use CaMeL dual-LLM split
+    enable_camel: bool = False      # CaMeL dual-LLM split (DESCOPED — capability tracker still works via orchestrator)
     enable_rag: bool = True         # Use RAG augmentation for Tier 2
     enable_memory: bool = True      # Use pattern memory shortcuts
     enable_batch: bool = True       # Use batch scheduler for GPU calls
@@ -190,6 +194,13 @@ class WardenConfig:
             config.model.llm_cache_prompt = cache_prompt.lower() in ("1", "true", "yes")
         if split_mode := os.environ.get("WARDEN_LLM_SPLIT_MODE"):
             config.model.llm_split_mode = split_mode
+        if wait_load := os.environ.get("WARDEN_LLM_WAIT_MODEL_LOAD"):
+            config.model.llm_wait_model_load = wait_load.lower() in ("1", "true", "yes")
+        if n_threads_batch := os.environ.get("WARDEN_LLM_N_THREADS_BATCH"):
+            try:
+                config.model.llm_n_threads_batch = int(n_threads_batch)
+            except ValueError:
+                pass  # keep default 0 (mirror n_threads)
 
         # Feature flags
         for flag, attr in [

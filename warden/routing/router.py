@@ -4,9 +4,13 @@ The Intelligent Routing Engine — Warden's central nervous system.
 Every input flows through this router. It decides:
 1. WHAT tier(s) to invoke (Tier 0 / Tier 1 / Tier 2)
 2. IN WHAT ORDER (cascade: cheap first, escalate if uncertain)
-3. WHETHER to use P-LLM or Q-LLM path (trust-based routing)
-4. WHETHER to batch with other pending checks (GPU efficiency)
-5. WHETHER to skip entirely (known-safe / known-blocked from memory)
+3. WHETHER to batch with other pending checks (GPU efficiency)
+4. WHETHER to skip entirely (known-safe / known-blocked from memory)
+
+NOTE: the P-LLM / Q-LLM trust-based routing path was prototyped but
+descoped for this hackathon (see progress.md "Known Gaps"). The router
+runs the tier cascade regardless of trust; tool-call data-flow
+enforcement lives in the CaMeL capability tracker, not here.
 """
 
 from __future__ import annotations
@@ -28,18 +32,20 @@ class ThrottleRouter:
     """
     The Intelligent Routing Engine.
 
-    Routing Decision Matrix:
+    Routing Decision Matrix (descoped: dual-LLM P/Q path removed):
     ┌──────────────┬──────────────┬──────────────┬────────────────┐
-    │ Trust Level  │ Confidence   │ Tier         │ Action         │
+    │ Source       │ Confidence  │ Tier reached │ Action         │
     ├──────────────┼──────────────┼──────────────┼────────────────┤
-    │ (Note: Trust classification handled by CaMeL layer; router runs tier cascade regardless of trust) │
-    │ Untrusted    │ High clean   │ Tier 0 only  │ Q-LLM extract  │
-    │ Untrusted    │ High threat  │ Tier 0 only  │ BLOCK          │
-    │ Untrusted    │ Medium       │ → Tier 1     │ Re-evaluate    │
-    │ Untrusted    │ Low (T1)     │ → Tier 2     │ GPU escalation │
+    │ Any          │ High threat  │ Tier 0       │ BLOCK          │
+    │ Any          │ Ambiguous    │ → Tier 1     │ Re-evaluate    │
+    │ Any          │ Low (T1)     │ → Tier 2     │ GPU escalation │
     │ Known-bad    │ —            │ Memory skip  │ AUTO-BLOCK     │
     │ Known-safe   │ —            │ Memory skip  │ ALLOW          │
     └──────────────┴──────────────┴──────────────┴────────────────┘
+
+    Tool-call data-flow enforcement (untrusted data in control args)
+    is handled by the CaMeL capability tracker in the orchestrator, not
+    in the router itself.
     """
 
     def __init__(
@@ -144,13 +150,18 @@ class ThrottleRouter:
                 self._stats["tier0_resolved"] += 1
                 return self._record_and_return(result.finalize(t0_result.decision, t0_result.explanation), text, input_hash, source)
 
-        # Step 3.5: Trust-based routing (P-LLM path) - executed only if Tier 0 (regex/secrets) didn't block it
+        # Step 3.5: Trusted-source fast path. Tier 0 has passed (no
+        # regex hit, no secret leak). User-direct input that survives
+        # Tier 0 is fast-path allowed — saves the Tier 1/2 latency for
+        # the inputs that actually need it (fetched URLs, tool outputs,
+        # file reads).  This is the routing efficiency win, not a
+        # P-LLM/Q-LLM routing decision (that split was descoped).
         if source == "user_direct":
-            self._stats.setdefault("trust_resolved", 0)
-            self._stats["trust_resolved"] += 1
+            self._stats.setdefault("user_direct_fast_path", 0)
+            self._stats["user_direct_fast_path"] += 1
             return self._record_and_return(
-                result.finalize(Decision.ALLOW, "Trusted User Input — routing to P-LLM"),
-                text, input_hash, source
+                result.finalize(Decision.ALLOW, "Trusted user input — Tier 0 passed"),
+                text, input_hash, source,
             )
 
         # Step 4: Tier 1 (classifier, ~20ms) — only if available

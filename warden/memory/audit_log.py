@@ -175,7 +175,7 @@ class AuditLog:
             return False
         cursor = self._conn.cursor()
         cursor.execute(
-            "SELECT times_seen FROM patterns WHERE input_hash = ? AND last_decision IN ('allow', 'extract_only') AND times_seen >= 3",
+            "SELECT times_seen FROM patterns WHERE input_hash = ? AND last_decision = 'allow' AND times_seen >= 3",
             (input_hash,)
         )
         return cursor.fetchone() is not None
