@@ -92,18 +92,90 @@ class Tier2LLM(TierChecker):
             from llama_cpp import Llama
 
             logger.info(f"Loading Tier 2 LLM with ROCm acceleration: {model_path}")
-            self._llm = Llama(
-                model_path=model_path,
-                n_gpu_layers=self._config.llm_n_gpu_layers,
-                n_ctx=self._config.llm_n_ctx,
-                n_threads=os.cpu_count() or 4,
-                n_batch=getattr(self._config, "llm_n_batch", 512),
-                flash_attn=getattr(self._config, "llm_flash_attn", True),
-                offload_kqv=getattr(self._config, "llm_offload_kqv", True),
-                verbose=False,
-            )
+
+            # Pin threads to physical cores (logical HT count causes cache
+            # thrashing and slows prompt evaluation 10-20% on AMD Cloud).
+            if self._config.llm_physical_threads:
+                n_threads = self._physical_core_count() or 4
+            else:
+                n_threads = os.cpu_count() or 4
+
+            def _build_llm(n_gpu_layers: int) -> "Llama":
+                kwargs = dict(
+                    model_path=model_path,
+                    n_gpu_layers=n_gpu_layers,
+                    n_ctx=self._config.llm_n_ctx,
+                    n_threads=n_threads,
+                    n_batch=getattr(self._config, "llm_n_batch", 512),
+                    flash_attn=getattr(self._config, "llm_flash_attn", True),
+                    offload_kqv=getattr(self._config, "llm_offload_kqv", True),
+                    seed=getattr(self._config, "llm_seed", 42),
+                    use_mmap=getattr(self._config, "llm_use_mmap", True),
+                    use_mlock=getattr(self._config, "llm_use_mlock", False),
+                    verbose=False,
+                )
+                # Advanced ROCm knobs (only added if non-default — keeps
+                # the kwargs surface narrow on older llama-cpp-python builds).
+                rope_base = getattr(self._config, "llm_rope_freq_base", 10000.0)
+                if rope_base and rope_base != 10000.0:
+                    kwargs["rope_freq_base"] = rope_base
+                rope_scale = getattr(self._config, "llm_rope_freq_scale", 1.0)
+                if rope_scale and rope_scale != 1.0:
+                    kwargs["rope_freq_scale"] = rope_scale
+                main_gpu = getattr(self._config, "llm_main_gpu", 0)
+                if main_gpu != 0:
+                    kwargs["main_gpu"] = main_gpu
+                tensor_split = getattr(self._config, "llm_tensor_split", "")
+                if tensor_split:
+                    kwargs["tensor_split"] = tensor_split
+                split_mode = getattr(self._config, "llm_split_mode", "layer")
+                if split_mode and split_mode != "layer":
+                    try:
+                        kwargs["split_mode"] = split_mode
+                    except TypeError:
+                        logger.warning(f"split_mode '{split_mode}' not supported — using default 'layer'")
+                # KV cache quantization (only if llama-cpp-python exposes type_k/type_v)
+                kv_type = getattr(self._config, "llm_kv_cache_type", "f16")
+                if kv_type and kv_type != "f16":
+                    try:
+                        kwargs["type_k"] = kv_type
+                        kwargs["type_v"] = kv_type
+                    except TypeError:
+                        # older llama-cpp-python build doesn't accept these kwargs
+                        logger.warning(f"KV cache type '{kv_type}' not supported by installed llama-cpp-python — using f16 default")
+                return Llama(**kwargs)
+
+            # Adaptive GPU offload: try full offload (-1) first; if that OOMs
+            # on a large quant (e.g. Q8_0 7B on 8GB VRAM), retry with the
+            # partial offload fallback. This is what makes the Q4/Q5/Q8
+            # quantization comparison table actually runnable on one card.
+            try:
+                self._llm = _build_llm(self._config.llm_n_gpu_layers)
+            except Exception as e:
+                logger.warning(
+                    f"Full GPU offload (n_gpu_layers={self._config.llm_n_gpu_layers}) failed: {e}. "
+                    f"Retrying with partial offload (n_gpu_layers={self._config.llm_n_gpu_layers_fallback})."
+                )
+                self._llm = _build_llm(self._config.llm_n_gpu_layers_fallback)
+
             self._loaded = True
-            logger.info("Tier 2 LLM loaded successfully")
+            logger.info(
+                f"Tier 2 LLM loaded successfully "
+                f"(ctx={self._config.llm_n_ctx}, kv={self._config.llm_kv_cache_type}, "
+                f"n_gpu_layers={self._llm.n_gpu_layers if hasattr(self._llm, 'n_gpu_layers') else '?'}, "
+                f"threads={n_threads})"
+            )
+
+            # Warm up: dispatch a 1-token no-op so the first real request
+            # doesn't pay the lazy kernel-compile / weight-swap cost. Without
+            # this, the demo's first ambiguous prompt freezes 5-10s.
+            if getattr(self._config, "llm_warmup_on_load", True):
+                try:
+                    self._llm("x", max_tokens=1, temperature=0.0)
+                    logger.debug("Tier 2 warmup dispatch complete")
+                except Exception as e:
+                    logger.warning(f"Warmup dispatch failed (non-fatal): {e}")
+
             return True
 
         except Exception as e:
@@ -115,6 +187,30 @@ class Tier2LLM(TierChecker):
     def tier_number(self) -> int:
         return 2
 
+    @staticmethod
+    def _physical_core_count() -> Optional[int]:
+        """Best-effort physical core count (avoid HT thrashing on prompt eval)."""
+        try:
+            import os
+            # Linux /sys exposes physical core IDs per logical CPU.
+            core_ids = set()
+            cpu_dir = "/sys/devices/system/cpu"
+            if os.path.isdir(cpu_dir):
+                for entry in os.listdir(cpu_dir):
+                    if not entry.startswith("cpu") or not entry[3:].isdigit():
+                        continue
+                    core_id_file = os.path.join(cpu_dir, entry, "topology", "core_id")
+                    if os.path.exists(core_id_file):
+                        with open(core_id_file) as f:
+                            core_ids.add(f.read().strip())
+            if core_ids:
+                return len(core_ids)
+            # Fallback: half the affinity count (typical 2-way SMT on AMD Zen).
+            if hasattr(os, "sched_getaffinity"):
+                return max(1, len(os.sched_getaffinity(0)) // 2)
+        except Exception:
+            pass
+        return None
     def check(self, text: str, context: str = "") -> CheckResult:
         """Run semantic injection analysis on the input text."""
         return self.check_injection(text, context)
@@ -159,6 +255,7 @@ string ::= "\"" ( [^"\\] | "\\" . )* "\""
                     max_tokens=256,
                     temperature=self._config.llm_temperature,
                     grammar=grammar,
+                    cache_prompt=getattr(self._config, "llm_cache_prompt", True),
                 )
                 raw_text = response["choices"][0]["text"].strip()
 
@@ -235,6 +332,7 @@ string ::= "\"" ( [^"\\] | "\\" . )* "\""
                     max_tokens=256 * count,
                     temperature=self._config.llm_temperature,
                     grammar=grammar,
+                    cache_prompt=getattr(self._config, "llm_cache_prompt", True),
                 )
                 raw_text = response["choices"][0]["text"].strip()
 
@@ -309,6 +407,7 @@ number ::= [0-9]+
                     max_tokens=512,
                     temperature=self._config.llm_temperature,
                     grammar=grammar,
+                    cache_prompt=getattr(self._config, "llm_cache_prompt", True),
                 )
                 raw_text = response["choices"][0]["text"].strip()
 
@@ -351,6 +450,7 @@ number ::= [0-9]+
                 prompt,
                 max_tokens=max_tokens,
                 temperature=self._config.llm_temperature,
+                cache_prompt=getattr(self._config, "llm_cache_prompt", True),
             )
             return response["choices"][0]["text"].strip()
         except Exception as e:

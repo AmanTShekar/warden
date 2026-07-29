@@ -101,4 +101,49 @@
 - [ ] Luma submission
 - [ ] All links verified
 
-- [ ] All links verified
+---
+
+## Known Gaps
+
+Tracked honestly so judges can see what's tested vs. what's claimed. Updated as
+of July 28, 2026.
+
+### Architecture / Routing
+- **P-LLM / Q-LLM split not implemented.** CaMeL interpreter exists
+  (`warden/camel/interpreter.py`) with quarantine, plan_with_refs, and
+  tool-call checking, but the full two-LLM privileged/unprivileged split
+  described in `plan.md` is descoped. Single-model + Tier 1 classifier is
+  the shipped path. Documented as "future work" per plan.md fallback.
+- **Cross-process sweep not implemented.** `PatternTracker` auto-block
+  works in-process; audit-log `is_known_blocked` is queried per-router
+  instance but a true background sweeper daemon is not yet wired.
+
+### CI / Validation
+- **Grammar (GBNF) tests skip on dev host.** `llama-cpp-python` is not
+  installed locally; `test_tier2_grammar.py` is skipped via `pytest.mark.skipif`.
+  Must run on AMD Cloud GPU host.
+- **No AMD GPU locally.** All ROCm optimizations (KV cache Q8, adaptive
+  offload, flash-attn, physical-core thread pinning) are code-complete but
+  unvalidated against `rocm-smi` telemetry. `measure_power.py` is the harness;
+  needs a cloud run.
+- **Tier 1 mock test skipped.** `test_tier1_real.py::test_tier1_real_model`
+  requires the `protectai/deberta-v3-base-prompt-injection-v2` model download
+  on first run; flaky on CI without HF cache.
+
+### Benchmark Credibility
+- **SHA-256 manifest implemented** (`scripts/sha256_manifest.py`) — 104
+  entries across scripts/policies/data/tests. Model GGUFs excluded by
+  default (`--include-models` to include). Manifest committed at
+  `benchmarks/results/manifest.jsonl`.
+- **`measure_power.py` rewritten** as a real harness: rocm-smi JSON
+  polling, joules = avg_watts × duration_s, CSV + summary, graceful
+  degradation on non-ROCm hosts. Tested on dev (4 tests) but not yet run
+  on actual GPU.
+
+### Tier Defenses
+- **Tier 0 combined regex.** Individual patterns (injection, secret,
+  SQLi, shell) work; a single combined regex that fires once per input
+  (vs. iterating patterns) is a planned micro-optimization.
+- **TrustClassifier wire-or-delete.** Currently wired in router but
+  effectively a pass-through; either train a real trust signal or remove
+  to keep the architecture honest.

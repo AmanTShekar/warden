@@ -214,10 +214,6 @@ class ThrottleRouter:
 
     def _record_and_return(self, result: RoutingResult, text: str, input_hash: str, source: str, skip_tracker: bool = False) -> RoutingResult:
         """Record event to AuditLog and PatternTracker, then return."""
-        
-        # Trust-based routing: safe but untrusted content should go to Q-LLM for extraction
-        if result.decision == Decision.ALLOW and source != "user_direct":
-            result.decision = Decision.EXTRACT_ONLY
             
         # 1. Log to SQLite audit db if connected
         if self.memory and hasattr(self.memory, 'log_event'):

@@ -144,9 +144,9 @@ class Tier1Classifier(TierChecker):
 
     def _prob_to_decision(self, prob: float) -> Decision:
         """Map injection probability to a routing decision."""
-        if prob >= 0.85:
+        if prob >= self._config.classifier_threshold_block:
             return Decision.BLOCK
-        elif prob <= 0.05:
+        elif prob <= getattr(self._config, "classifier_threshold_allow", 0.05):
             return Decision.ALLOW
         else:
             return Decision.UNCERTAIN  # Needs Tier 2

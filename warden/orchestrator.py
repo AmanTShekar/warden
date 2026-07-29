@@ -66,7 +66,7 @@ class WardenOrchestrator:
         
         # 2. Apply Shadow Mode override
         if self.mode == "shadow":
-            if decision in (Decision.BLOCK, Decision.FLAG, Decision.EXTRACT_ONLY):
+            if decision in (Decision.BLOCK, Decision.FLAG):
                 logger.warning(f"[Orchestrator][SHADOW MODE] Would have applied {decision.name}, but allowing.")
             return GuardResult(
                 is_safe=True,
@@ -84,22 +84,7 @@ class WardenOrchestrator:
                 action="block"
             )
             
-        if decision == Decision.EXTRACT_ONLY:
-            # CaMeL Q-LLM invocation for untrusted but non-malicious content
-            logger.info("[Orchestrator] Routing safe but untrusted content to Q-LLM for extraction.")
-            # In a real implementation, we would extract specific schema here.
-            # For the demo, we just mark it as extract_only.
-            extracted = self.camel.quarantine_content(text, "content_summary")
-            
-            return GuardResult(
-                is_safe=True,
-                decision=decision,
-                explanation="Content is safe but untrusted. Routed through Q-LLM.",
-                action="extract_only",
-                extracted_data={"ref_id": extracted}
-            )
-
-        # ALLOW or FLAG (safe to proceed)
+        # Default fallback for ALLOW/UNCERTAIN in Active Mode
         return GuardResult(
             is_safe=True,
             decision=decision,
