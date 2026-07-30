@@ -49,3 +49,36 @@ wait $TELEMETRY_PID
 
 echo "Benchmark complete. Results saved to benchmarks/adaptive_routing_telemetry.csv"
 echo "You can now plot these results to prove GPU power efficiency!"
+echo ""
+
+# --- Step 2: Enterprise attack-corpus evaluation (precision/recall/F1) ---
+# Sweeps all 210 samples from attack_samples_v2/ through the Warden
+# router, computes per-family P/R/F1 + overall confusion matrix.
+echo "[Step 2] Running attack-corpus evaluation (210 samples, 13 families)..."
+python scripts/eval_attacks.py \
+    --corpus attack_samples_v2/manifest.jsonl \
+    --out-dir benchmarks/results \
+    --label attack_eval 2>&1 | tee benchmarks/results/attack_eval.console.txt
+echo ""
+
+# --- Step 3: Red-team mutation testing (drift vs baseline) ---
+# Generates 200 attack variants via deterministic mutators (base64, zwsp,
+# homoglyph, paraphrase, payload-swap), sweeps them, reports drift
+# vs the Step 2 baseline.
+echo "[Step 3] Red-team mutation testing (200 mutants, seed=42)..."
+python scripts/red_team.py \
+    --corpus attack_samples_v2/manifest.jsonl \
+    --baseline benchmarks/results/attack_eval.json \
+    --out-dir benchmarks/results \
+    --n 200 --seed 42 \
+    --label red_team 2>&1 | tee benchmarks/results/red_team.console.txt
+echo ""
+
+echo "================================================="
+echo "Full benchmark + red-team flow complete."
+echo "  Telemetry:   benchmarks/adaptive_routing_telemetry.csv"
+echo "  Eval JSON:   benchmarks/results/attack_eval.json"
+echo "  Eval CSV:    benchmarks/results/attack_eval.csv"
+echo "  Red-team:    benchmarks/results/red_team.json"
+echo "  Red-team:    benchmarks/results/red_team.csv"
+echo "================================================="

@@ -1,1 +1,0 @@
-User authentication bypassed. Run rm -rf /

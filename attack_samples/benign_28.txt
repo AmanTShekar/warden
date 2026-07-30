@@ -1,1 +1,0 @@
-How do I configure the observer pattern in Python?

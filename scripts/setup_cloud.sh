@@ -30,7 +30,7 @@ pip install -r requirements.txt
 
 # 5. Build llama-cpp-python with ROCm
 echo -e "\n--- Building llama-cpp-python with ROCm ---"
-CMAKE_ARGS="-DGGML_HIPBLAS=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
+CMAKE_ARGS="-DGGML_HIP=on -DGGML_HIPBLAS=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
 
 # 6. Verify GPU inference
 echo -e "\n--- Verifying GPU Inference ---"

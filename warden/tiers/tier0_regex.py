@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 import time
 import math
+import base64
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -104,10 +106,38 @@ class Tier0RegexChecker(TierChecker):
         """Run all regex/heuristic patterns against the input text."""
         start = time.perf_counter()
 
+        # --- Tier 0.5: Normalization Pre-Processing ---
+        norm_text = text
+        # 1. Strip zero-width characters
+        for zw in ["\u200B", "\u200C", "\u200D", "\uFEFF"]:
+            norm_text = norm_text.replace(zw, "")
+        
+        # 2. Normalize Unicode homoglyphs (math sans-serif, fullwidth -> ASCII)
+        norm_text = unicodedata.normalize('NFKC', norm_text)
+        
+        # 3. Collapse whitespace
+        norm_text = re.sub(r'\s+', ' ', norm_text)
+        
+        # 4. Auto-decode Base64 blocks to expose hidden payloads
+        b64_blocks = BASE64_PATTERN.findall(text) # use original text to find b64
+        decoded_append = []
+        for b64 in b64_blocks:
+            if len(b64) > 30:
+                try:
+                    pad = len(b64) % 4
+                    padded = b64 + "=" * (4 - pad) if pad else b64
+                    decoded = base64.b64decode(padded).decode('utf-8', errors='ignore')
+                    if re.search(r'[a-zA-Z0-9\s]', decoded):
+                        decoded_append.append(decoded)
+                except Exception:
+                    pass
+        if decoded_append:
+            norm_text += "\n" + "\n".join(decoded_append)
+
         matched_set = set()
         
         # Single-pass regex C-engine matching (Optimization A1)
-        for m in MASTER_PATTERN.finditer(text):
+        for m in MASTER_PATTERN.finditer(norm_text):
             for k, v in m.groupdict().items():
                 if v is not None:
                     matched_set.add(k.rsplit('_', 1)[0])

@@ -128,8 +128,8 @@ def cmd_ui(args):
     
     from ui.dashboard import build_dashboard
     app = build_dashboard(orchestrator)
-    console.print("[bold green]Starting Warden Dashboard on http://localhost:7860...[/]")
-    app.launch(server_name="0.0.0.0", server_port=7860)
+    console.print("[bold green]Starting Warden Dashboard...[/]")
+    app.launch(server_name="0.0.0.0", server_port=7860, share=True)
 
 
 def main():

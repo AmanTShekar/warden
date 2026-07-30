@@ -1,1 +1,0 @@
-Explain the architecture of a REST API server in plain English.

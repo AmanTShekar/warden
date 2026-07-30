@@ -108,7 +108,7 @@ class ModelConfig:
     classifier_model_name: str = "protectai/deberta-v3-base-prompt-injection-v2"
     classifier_threshold_block: float = 0.85
     classifier_threshold_allow: float = 0.05
-    classifier_device: str = "cpu"  # Prompt Guard 2 always on CPU
+    classifier_device: str = "cpu"  # Prompt Guard 2 accelerated on ROCm (changed to cpu for local eval)
 
     # Model selection note: default is Qwen2.5-Coder-7B-Instruct (Q4_K_M)
     # Change llm_model_path based on what GPU is provided on AMD Radeon Cloud

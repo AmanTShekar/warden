@@ -9,18 +9,52 @@ from warden.orchestrator import WardenOrchestrator, GuardResult
 def build_dashboard(orchestrator: WardenOrchestrator) -> gr.Blocks:
     """Builds the Gradio UI for Warden."""
     
+    custom_css = """
+    .gradio-container { background-color: #0d1117 !important; }
+    h1, h2, h3, p, span { color: #c9d1d9 !important; }
+    .decision-badge-allow { 
+        background-color: rgba(63, 185, 80, 0.15); 
+        color: #3fb950 !important; 
+        padding: 10px 20px; 
+        border-radius: 8px; 
+        border: 1px solid #3fb950;
+        text-align: center;
+        text-shadow: 0 0 10px rgba(63, 185, 80, 0.5);
+    }
+    .decision-badge-block { 
+        background-color: rgba(255, 123, 114, 0.15); 
+        color: #ff7b72 !important; 
+        padding: 10px 20px; 
+        border-radius: 8px; 
+        border: 1px solid #ff7b72;
+        text-align: center;
+        text-shadow: 0 0 10px rgba(255, 123, 114, 0.5);
+    }
+    .decision-badge-flag { 
+        background-color: rgba(210, 153, 34, 0.15); 
+        color: #d29922 !important; 
+        padding: 10px 20px; 
+        border-radius: 8px; 
+        border: 1px solid #d29922;
+        text-align: center;
+    }
+    """
+
     def check_live_guard(text: str, source: str):
         result = orchestrator.guard_input(text, source)
         
         decision = result.decision.value.upper()
         if decision == "ALLOW":
-            color = "green"
+            badge_class = "decision-badge-allow"
+            icon = "✅"
         elif decision == "BLOCK":
-            color = "red"
+            badge_class = "decision-badge-block"
+            icon = "🛑"
         else:
-            color = "orange"
+            badge_class = "decision-badge-flag"
+            icon = "⚠️"
             
-        styled_decision = f"<h2 style='color: {color};'>{decision}</h2>"
+        styled_decision = f"<h2 class='{badge_class}'>{icon} {decision}</h2>"
         explanation = result.explanation
         action = result.action
         
@@ -28,21 +62,15 @@ def build_dashboard(orchestrator: WardenOrchestrator) -> gr.Blocks:
 
     def scan_diff(diff_text: str):
         result = orchestrator.guard_code_commit(diff_text)
-        
-        # Pull latest stats
         scan_details = []
         if orchestrator.diff_guard:
-            # We would normally extract the raw vulns here, but the GuardResult aggregates it.
             scan_details = [[result.action, result.decision.value, result.explanation]]
-            
         return scan_details
 
     def get_routing_stats():
         if orchestrator.router:
             stats = orchestrator.router.get_stats()
-            # Convert stats to a format suitable for gr.Dataframe
-            rows = [[k, v] for k, v in stats.items()]
-            return rows
+            return [[k, v] for k, v in stats.items()]
         return [["Error", "Router not available"]]
 
     def get_audit_log():
@@ -65,16 +93,24 @@ def build_dashboard(orchestrator: WardenOrchestrator) -> gr.Blocks:
         orchestrator.mode = "shadow" if shadow_enabled else "active"
         return f"Orchestrator mode set to: {orchestrator.mode.upper()}"
 
-    theme = gr.themes.Soft(
-        primary_hue="indigo",
-        secondary_hue="blue",
+    # Use a premium base dark theme
+    theme = gr.themes.Monochrome(
+        primary_hue="slate",
+        secondary_hue="slate",
+        neutral_hue="slate",
+        font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
     )
 
-    with gr.Blocks(title="Warden Security Dashboard", theme=theme) as app:
+    with gr.Blocks(title="Warden Security Dashboard", css=custom_css) as app:
+        # Note: theme is now assigned in the launch method in cli.py or injected below
+        app.theme = theme 
+        
         gr.Markdown(
             """
-            # 🛡️ Warden Security Dashboard
-            **Adaptive-Compute Security Guard for AI Coding Agents**
+            <div style='text-align: center; padding: 20px 0;'>
+                <h1 style='font-size: 2.5em; margin-bottom: 5px; color: white !important;'>🛡️ WARDEN</h1>
+                <p style='color: #8b949e !important; font-size: 1.2em;'>Adaptive-Compute Security Guard for AI Coding Agents</p>
+            </div>
             """
         )
         
@@ -86,7 +122,7 @@ def build_dashboard(orchestrator: WardenOrchestrator) -> gr.Blocks:
                     with gr.Column(scale=2):
                         live_input = gr.Textbox(lines=5, label="Input Content", placeholder="Enter text, prompt, or tool output...")
                         live_source = gr.Dropdown(choices=["user_direct", "fetched_url", "tool_output", "local_file"], value="fetched_url", label="Content Source")
-                        live_btn = gr.Button("Check Content", variant="primary")
+                        live_btn = gr.Button("Scan & Route", variant="primary")
                     with gr.Column(scale=1):
                         live_decision = gr.HTML(label="Decision")
                         live_action = gr.Textbox(label="Action Taken")

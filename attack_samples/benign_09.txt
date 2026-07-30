@@ -1,1 +1,0 @@
-Write a documentation string for SQLAlchemy ORM models

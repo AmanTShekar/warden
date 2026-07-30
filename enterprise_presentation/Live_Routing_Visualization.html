@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warden | Live Neural Routing Visualization</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <style>
+        body, html {
+            margin: 0; padding: 0;
+            width: 100vw; height: 100vh;
+            background-color: #030305;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            width: 100vw; height: 100vh;
+        }
+        .hud {
+            position: absolute;
+            top: 40px; left: 40px;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .title {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 5px;
+            background: linear-gradient(135deg, #4ade80 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: #94a3b8;
+            font-size: 1rem;
+            margin-bottom: 30px;
+        }
+        .metric-box {
+            background: rgba(15, 16, 21, 0.8);
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 15px;
+            width: 300px;
+        }
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        .metric-label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .text-green { color: #4ade80; }
+        .text-red { color: #ef4444; }
+        .text-blue { color: #3b82f6; }
+    </style>
+</head>
+<body>
+
+    <div class="hud">
+        <div class="title">WARDEN.AI</div>
+        <div class="subtitle">LIVE NEURAL ROUTING MATRIX</div>
+        
+        <div class="metric-box">
+            <div class="metric-value text-red" id="blockedCounter">0</div>
+            <div class="metric-label">Malicious Requests Blocked</div>
+        </div>
+        <div class="metric-box">
+            <div class="metric-value text-green" id="allowedCounter">0</div>
+            <div class="metric-label">Safe Requests Processed</div>
+        </div>
+        <div class="metric-box">
+            <div class="metric-value text-blue" id="powerCounter">0</div>
+            <div class="metric-label">Watts Saved vs Baseline</div>
+        </div>
+    </div>
+
+    <canvas id="matrix"></canvas>
+
+    <script>
+        const canvas = document.getElementById('matrix');
+        const ctx = canvas.getContext('2d');
+        
+        // Setup HDPI canvas
+        function resize() {
+            canvas.width = window.innerWidth * window.devicePixelRatio;
+            canvas.height = window.innerHeight * window.devicePixelRatio;
+            canvas.style.width = window.innerWidth + 'px';
+            canvas.style.height = window.innerHeight + 'px';
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Node Definitions
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+        
+        const nodes = {
+            internet: { x: cx - 400, y: cy, radius: 40, color: '#ffffff', label: 'Internet Traffic' },
+            router:   { x: cx - 100, y: cy, radius: 50, color: '#3b82f6', label: 'Warden Router' },
+            tier0:    { x: cx + 200, y: cy - 250, radius: 35, color: '#f59e0b', label: 'Tier 0: Regex' },
+            tier1:    { x: cx + 200, y: cy - 100, radius: 35, color: '#f59e0b', label: 'Tier 1: NLP' },
+            tier2:    { x: cx + 200, y: cy + 50, radius: 35, color: '#f59e0b', label: 'Tier 2: Code' },
+            llm:      { x: cx + 400, y: cy, radius: 70, color: '#4ade80', label: 'AMD ROCm LLM' }
+        };
+
+        const connections = [
+            { from: 'internet', to: 'router' },
+            { from: 'router', to: 'tier0' },
+            { from: 'router', to: 'tier1' },
+            { from: 'router', to: 'tier2' },
+            { from: 'router', to: 'llm' }
+        ];
+
+        let particles = [];
+        let explosions = [];
+        
+        let stats = { blocked: 0, allowed: 0, power: 0 };
+        
+        class Particle {
+            constructor() {
+                this.isMalicious = Math.random() > 0.3; // 70% malicious
+                this.color = this.isMalicious ? '#ef4444' : '#4ade80';
+                
+                // Start at internet
+                this.x = nodes.internet.x;
+                this.y = nodes.internet.y;
+                
+                // Target router first
+                this.targetNode = 'router';
+                this.speed = 4 + Math.random() * 3;
+                this.arrived = false;
+                this.size = 3 + Math.random() * 2;
+            }
+
+            update() {
+                const target = nodes[this.targetNode];
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                if (dist < 10) {
+                    if (this.targetNode === 'router') {
+                        // Re-route based on maliciousness
+                        if (this.isMalicious) {
+                            // Pick random tier to block
+                            const tiers = ['tier0', 'tier1', 'tier2'];
+                            this.targetNode = tiers[Math.floor(Math.random() * tiers.length)];
+                        } else {
+                            this.targetNode = 'llm';
+                        }
+                    } else {
+                        this.arrived = true;
+                        
+                        if (this.isMalicious) {
+                            stats.blocked++;
+                            stats.power += 250; // Saved 250W by not hitting LLM
+                            createExplosion(this.x, this.y, '#ef4444');
+                        } else {
+                            stats.allowed++;
+                            createExplosion(this.x, this.y, '#4ade80');
+                        }
+                        
+                        document.getElementById('blockedCounter').innerText = stats.blocked;
+                        document.getElementById('allowedCounter').innerText = stats.allowed;
+                        document.getElementById('powerCounter').innerText = stats.power.toLocaleString();
+                    }
+                } else {
+                    this.x += (dx / dist) * this.speed;
+                    this.y += (dy / dist) * this.speed;
+                }
+            }
+
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+        
+        class ExplosionParticle {
+            constructor(x, y, color) {
+                this.x = x; this.y = y; this.color = color;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 5 + 2;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.05 + 0.02;
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy;
+                this.life -= this.decay;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        function createExplosion(x, y, color) {
+            for(let i=0; i<15; i++) {
+                explosions.push(new ExplosionParticle(x, y, color));
+            }
+        }
+
+        function drawNode(node) {
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#0f1015';
+            ctx.fill();
+            
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = node.color;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = node.color;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px JetBrains Mono';
+            ctx.textAlign = 'center';
+            ctx.fillText(node.label, node.x, node.y + node.radius + 25);
+        }
+
+        function drawConnection(n1, n2) {
+            ctx.beginPath();
+            ctx.moveTo(n1.x, n1.y);
+            ctx.lineTo(n2.x, n2.y);
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        function animate() {
+            ctx.fillStyle = 'rgba(3, 3, 5, 0.2)'; // trailing effect
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw lines
+            connections.forEach(c => {
+                drawConnection(nodes[c.from], nodes[c.to]);
+            });
+
+            // Draw nodes
+            Object.values(nodes).forEach(n => drawNode(n));
+
+            // Spawn particles
+            if (Math.random() < 0.2) {
+                particles.push(new Particle());
+            }
+
+            // Update particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.update();
+                p.draw(ctx);
+                if (p.arrived) particles.splice(i, 1);
+            }
+            
+            // Update explosions
+            for (let i = explosions.length - 1; i >= 0; i--) {
+                const e = explosions[i];
+                e.update();
+                e.draw(ctx);
+                if (e.life <= 0) explosions.splice(i, 1);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
