@@ -28,6 +28,23 @@ if [ -x scripts/tune_system.sh ]; then
 fi
 echo ""
 
+# --- Step 0c: rocBLAS tuning-cache warmup ---
+# llama.cpp autotunes rocBLAS GEMM kernels on first use per shape and
+# caches the winner in ~/.cache/rocblas. Without a warmup, the first
+# real prompt pays that autotune cost INSIDE the telemetry window,
+# inflating the measured latency/joules. Prime the cache before the
+# measurement starts so the window sees steady-state performance.
+echo "[Step 0c] Warming rocBLAS tuning cache (GEMM autotune)..."
+if command -v rocblas-bench >/dev/null 2>&1; then
+    # fp16 GEMMs: the shapes llama.cpp uses for prompt-eval (prefill) + decode
+    rocblas-bench -f gemm -m 4096 -n 4096 -k 4096 --a_type f16_r --b_type f16_r --c_type f16_r --compute_type f16_r >/dev/null 2>&1 || true
+    rocblas-bench -f gemm -m 1024 -n 1024 -k 1024 --a_type f16_r --b_type f16_r --c_type f16_r --compute_type f16_r >/dev/null 2>&1 || true
+    echo "  rocBLAS tuning cache primed."
+else
+    echo "  rocblas-bench not found — skipping (llama.cpp will autotune in-window)."
+fi
+echo ""
+
 # Start the power and telemetry measurement in the background
 echo "Starting GPU telemetry monitoring..."
 python benchmarks/measure_power.py --output benchmarks/adaptive_routing_telemetry.csv --duration 120 --interval 100 &
@@ -49,6 +66,14 @@ wait $TELEMETRY_PID
 
 echo "Benchmark complete. Results saved to benchmarks/adaptive_routing_telemetry.csv"
 echo "You can now plot these results to prove GPU power efficiency!"
+echo ""
+
+# --- Step 1b: LLM phase-split benchmark (prefill vs decode + cache hit/miss) ---
+# Streams Tier 2 generations with cache_prompt off then on, reporting the
+# prefill/decode phase split (tokens/s per phase) and the cache speedup.
+# Skips gracefully (exit 0) when no model/llama.cpp is available.
+echo "[Step 1b] LLM phase-split benchmark (prefill/decode + cache hit/miss)..."
+python benchmarks/llm_phase_benchmark.py --runs 2 2>&1 | tee benchmarks/results/llm_phase_benchmark.console.txt
 echo ""
 
 # --- Step 2: Enterprise attack-corpus evaluation (precision/recall/F1) ---
@@ -76,9 +101,10 @@ echo ""
 
 echo "================================================="
 echo "Full benchmark + red-team flow complete."
-echo "  Telemetry:   benchmarks/adaptive_routing_telemetry.csv"
-echo "  Eval JSON:   benchmarks/results/attack_eval.json"
-echo "  Eval CSV:    benchmarks/results/attack_eval.csv"
-echo "  Red-team:    benchmarks/results/red_team.json"
-echo "  Red-team:    benchmarks/results/red_team.csv"
+echo "  Telemetry:     benchmarks/adaptive_routing_telemetry.csv"
+echo "  Phase-split:   benchmarks/results/llm_phase_benchmark.json"
+echo "  Eval JSON:     benchmarks/results/attack_eval.json"
+echo "  Eval CSV:      benchmarks/results/attack_eval.csv"
+echo "  Red-team:      benchmarks/results/red_team.json"
+echo "  Red-team:      benchmarks/results/red_team.csv"
 echo "================================================="

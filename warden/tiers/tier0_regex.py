@@ -106,33 +106,12 @@ class Tier0RegexChecker(TierChecker):
         """Run all regex/heuristic patterns against the input text."""
         start = time.perf_counter()
 
-        # --- Tier 0.5: Normalization Pre-Processing ---
-        norm_text = text
-        # 1. Strip zero-width characters
-        for zw in ["\u200B", "\u200C", "\u200D", "\uFEFF"]:
-            norm_text = norm_text.replace(zw, "")
-        
-        # 2. Normalize Unicode homoglyphs (math sans-serif, fullwidth -> ASCII)
-        norm_text = unicodedata.normalize('NFKC', norm_text)
-        
-        # 3. Collapse whitespace
-        norm_text = re.sub(r'\s+', ' ', norm_text)
-        
-        # 4. Auto-decode Base64 blocks to expose hidden payloads
-        b64_blocks = BASE64_PATTERN.findall(text) # use original text to find b64
-        decoded_append = []
-        for b64 in b64_blocks:
-            if len(b64) > 30:
-                try:
-                    pad = len(b64) % 4
-                    padded = b64 + "=" * (4 - pad) if pad else b64
-                    decoded = base64.b64decode(padded).decode('utf-8', errors='ignore')
-                    if re.search(r'[a-zA-Z0-9\s]', decoded):
-                        decoded_append.append(decoded)
-                except Exception:
-                    pass
-        if decoded_append:
-            norm_text += "\n" + "\n".join(decoded_append)
+        # --- Tier 0.5: Normalization (homoglyphs, zero-width, base64) ---
+        # Delegated to warden.tiers.tier0_5_normalizer — pure function, unit-tested
+        # independently, and used by red-team tests to verify the homoglyph/zero-width
+        # gap is closed (see tests/test_attack_corpus.py + tests/test_tier0_5.py).
+        from warden.tiers.tier0_5_normalizer import normalize as tier0_5_normalize
+        norm_text = tier0_5_normalize(text)
 
         matched_set = set()
         
@@ -145,7 +124,9 @@ class Tier0RegexChecker(TierChecker):
         matched = list(matched_set)
         matched_weights = [PATTERN_WEIGHTS.get(m, 0.5) for m in matched]
 
-        # Check for suspicious base64 blocks (Optimization A2: fast path)
+        # Check for suspicious base64 blocks (use original text; the
+        # normalizer decoded short blocks already, but very long encoded
+        # blobs are still suspicious even if they decode to noise).
         if len(text) >= 40:
             b64_matches = BASE64_PATTERN.findall(text)
             if any(len(m) > 100 for m in b64_matches):

@@ -141,38 +141,57 @@ def _prf(tp: int, fn: int, tn: int, fp: int) -> tuple[float, float, float]:
 # ----------------------------------------------------------------------
 
 
-def _build_router(tiers_out: list[str]):
+def _build_router(
+    tiers_out: list[str],
+    routing_config: Optional[RoutingConfig] = None,
+    reuse: Optional[dict] = None,
+) -> "ThrottleRouter":
     """Construct the Warden router via the CLI's load-what's-available
     pipeline. Records which tiers actually loaded so the eval knows
-    whether e.g. Tier 1 failure is the cause of false negatives."""
+    whether e.g. Tier 1 failure is the cause of false negatives.
+
+    `reuse` may carry pre-built tier objects (keys tier0/tier1/tier2)
+    so threshold sweeps can rebuild cheap routers without re-loading
+    the DeBERTa weights per grid point. Built tiers are written back
+    into `reuse` so callers can reuse them across calls.
+    """
     from warden.tiers.tier0_regex import Tier0RegexChecker
     from warden.routing.router import ThrottleRouter
     from warden.config import WardenConfig
 
     config = WardenConfig.from_env()
-    tier0 = Tier0RegexChecker()
+    if reuse is None:
+        reuse = {}
+
+    tier0 = reuse.get("tier0") or Tier0RegexChecker()
+    reuse["tier0"] = tier0
     tiers_out.append("tier0")
 
-    tier1 = None
-    tier2 = None
+    tier1 = reuse.get("tier1")
+    tier2 = reuse.get("tier2")
 
-    try:
-        from warden.tiers.tier1_classifier import Tier1Classifier
-        tier1 = Tier1Classifier(config.model)
-        if tier1.load():
-            tiers_out.append("tier1")
-        else:
-            logger.info("[Eval harness] Tier 1 reported not loaded; Tier 0 only for safety scoring")
-    except Exception as e:
-        logger.info(f"[Eval harness] Tier 1 unavailable: {e}")
+    if tier1 is None:
+        try:
+            from warden.tiers.tier1_classifier import Tier1Classifier
+            tier1 = Tier1Classifier(config.model)
+            if tier1.load():
+                reuse["tier1"] = tier1
+                tiers_out.append("tier1")
+            else:
+                tier1 = None
+                logger.info("[Eval harness] Tier 1 reported not loaded; Tier 0 only for safety scoring")
+        except Exception as e:
+            logger.info(f"[Eval harness] Tier 1 unavailable: {e}")
 
-    if config.model.llm_model_path or config.model.tokenfactory_endpoint:
+    if tier2 is None and (config.model.llm_model_path or config.model.tokenfactory_endpoint):
         try:
             from warden.tiers.tier2_llm import Tier2LLM
             tier2 = Tier2LLM(config.model)
             if tier2.load():
+                reuse["tier2"] = tier2
                 tiers_out.append("tier2")
             else:
+                tier2 = None
                 logger.info("[Eval harness] Tier 2 reported not loaded")
         except Exception as e:
             logger.info(f"[Eval harness] Tier 2 unavailable: {e}")
@@ -181,7 +200,7 @@ def _build_router(tiers_out: list[str]):
         tier0=tier0,
         tier1=tier1,
         tier2=tier2,
-        config=config.routing,
+        config=routing_config or config.routing,
     )
 
 
@@ -204,6 +223,8 @@ def _load_corpus(path: pathlib.Path, family_filter: Optional[str]) -> list[dict]
 def evaluate(
     corpus_path: pathlib.Path,
     family_filter: Optional[str] = None,
+    routing_config: Optional[RoutingConfig] = None,
+    reuse_tiers: Optional[dict] = None,
 ) -> tuple[EvalSummary, list[SampleResult]]:
     """Sweep the corpus through the Warden router.
 
@@ -211,6 +232,10 @@ def evaluate(
     so the user-direct fast-path doesn't auto-allow any of them. This
     is the worst-case posture: assume no trust, see what each tier
     catches on its own.
+
+    `routing_config` overrides the threshold config (used by the
+    sensitivity sweep); `reuse_tiers` carries pre-built tier objects so
+    repeated sweeps don't re-load model weights.
 
     Returns (summary, list_of_sample_results) so callers don't have to
     re-walk the corpus to get per-row CSV data.
@@ -220,7 +245,7 @@ def evaluate(
         raise RuntimeError("No samples loaded — bad corpus or bad --family filter")
 
     tiers_used: list[str] = []
-    router = _build_router(tiers_used)
+    router = _build_router(tiers_used, routing_config=routing_config, reuse=reuse_tiers)
 
     from warden.config import Decision  # noqa: F401  (kept for future use)
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import time
 import logging
-from typing import Optional
+from typing import Optional, Iterator
 
 from warden.config import Decision, ModelConfig
 from warden.tiers.base import CheckResult, TierChecker
@@ -477,6 +477,42 @@ number ::= [0-9]+
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             return ""
+
+    def stream_generate(
+        self,
+        prompt: str,
+        max_tokens: int = 128,
+        cache_prompt: bool | None = None,
+    ) -> Iterator[tuple[str, float]]:
+        """Streaming generation — yields (text_chunk, elapsed_ms) pairs.
+
+        Yields ONLY non-empty text deltas, each tagged with the elapsed
+        milliseconds since the request started. That makes prefill vs
+        decode measurement trivial for the phase-split benchmark:
+        the FIRST chunk's elapsed_ms is the time-to-first-token (≈
+        prefill), everything after is decode.
+
+        `cache_prompt` defaults to the configured llm_cache_prompt; the
+        phase benchmark passes it explicitly to compare cache-hit vs
+        cache-miss runs on the SAME prompt.
+        """
+        if not self._loaded:
+            return
+        if self._config.tokenfactory_endpoint:
+            raise RuntimeError("stream_generate requires the local llama.cpp path (not TokenFactory)")
+        import time as _time
+        start = _time.perf_counter()
+        stream = self._llm(
+            prompt,
+            max_tokens=max_tokens,
+            temperature=self._config.llm_temperature,
+            stream=True,
+            cache_prompt=self._config.llm_cache_prompt if cache_prompt is None else cache_prompt,
+        )
+        for chunk in stream:
+            piece = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content") or ""
+            if piece:
+                yield piece, (_time.perf_counter() - start) * 1000.0
 
     def _invoke_tokenfactory(self, prompt: str, max_tokens: int = 256) -> str:
         """Invoke AMD TokenFactory HTTP endpoint."""

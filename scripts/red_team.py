@@ -106,7 +106,7 @@ def _homoglyph_swap(prompt: str) -> str:
     """Swap ASCII letters for mathematical Unicode homoglyphs."""
     swap_map = {
         "a": "\U0001D5EE", "e": "\U0001D5F2", "i": "\U0001D5F6",
-        "o": "\U0001D5FC", "u": "\U0001D600", "n": "\U0001D5FB",
+        "o": "\U0001D5FC", "u": "\U0001D602", "n": "\U0001D5FB",
     }
     out = []
     for c in prompt:

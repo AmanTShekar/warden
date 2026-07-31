@@ -1,6 +1,7 @@
 import logging
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional, Dict, Any, List, Tuple
+from dataclasses import dataclass, field
 
 from warden.config import Decision
 from warden.routing.router import ThrottleRouter
@@ -19,6 +20,16 @@ class GuardResult:
     explanation: str
     action: str = ""  # 'block', 'allow', 'log_only'
     extracted_data: Optional[Dict] = None
+
+
+@dataclass
+class GuardJob:
+    """One unit of work for the orchestrator batch queue."""
+    kind: str                       # "input" | "tool_call" | "commit"
+    payload: Any
+    context: str = ""
+    result: Optional[GuardResult] = None
+    error: str = ""
 
 
 class WardenOrchestrator:
@@ -44,7 +55,8 @@ class WardenOrchestrator:
         diff_guard: DiffGuard,
         policy: PolicyEngine,
         audit: AuditLog,
-        mode: str = "active"
+        mode: str = "active",
+        batch_workers: int = 4,
     ):
         self.router = router
         self.camel = camel
@@ -52,6 +64,7 @@ class WardenOrchestrator:
         self.policy = policy
         self.audit = audit
         self.mode = mode.lower()
+        self.batch_workers = batch_workers
 
     def guard_input(self, text: str, source: str) -> GuardResult:
         """
@@ -144,3 +157,61 @@ class WardenOrchestrator:
                 return GuardResult(is_safe=True, decision=Decision.FLAG, explanation=msg, action="allow")
 
         return GuardResult(is_safe=True, decision=Decision.ALLOW, explanation="No vulnerabilities detected", action="allow")
+
+    # ------------------------------------------------------------------
+    # Batch queue: concurrent diff/scan dispatch
+    # ------------------------------------------------------------------
+
+    def guard_batch(self, jobs: List[GuardJob]) -> List[GuardJob]:
+        """Dispatch multiple guard checks concurrently and return them
+        in submission order.
+
+        Why: an agent editing a repo submits N diffs or fetches M
+        external blobs in one turn. Guarding them serially (each ~20ms
+        Tier 1 + possibly ~500ms Tier 2) turns a burst into a stall.
+        This queue runs up to `batch_workers` checks in parallel and
+        preserves call order on the result list so callers can zip
+        results back to the originating jobs.
+
+        Tiers are already thread-safe enough for this: Tier 0 is pure
+        regex, Tier 1 is a loaded transformer (read-only inference),
+        and Tier 2's BatchScheduler serializes GPU execution under a
+        lock. Audit writes go through SQLite (single-writer, safe).
+        """
+        if not jobs:
+            return jobs
+        workers = max(1, min(self.batch_workers, len(jobs)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(self._dispatch_one, job): job
+                for job in jobs
+            }
+            for future in as_completed(futures):
+                job = futures[future]
+                try:
+                    job.result = future.result()
+                except Exception as e:
+                    job.error = str(e)
+                    logger.error(f"Batch guard job ({job.kind}) failed: {e}")
+        return jobs
+
+    def _dispatch_one(self, job: GuardJob) -> GuardResult:
+        """Route one batch job to the right guard. Raises on unknown kind."""
+        if job.kind == "input":
+            return self.guard_input(job.payload, job.context or "unknown")
+        if job.kind == "tool_call":
+            args = job.payload if isinstance(job.payload, dict) else {"args": job.payload}
+            return self.guard_tool_call(args.get("tool_name", "unknown"), args.get("args", {}), job.context)
+        if job.kind == "commit":
+            return self.guard_code_commit(job.payload)
+        raise ValueError(f"Unknown batch job kind: {job.kind}")
+
+    def batch_inputs(self, texts: List[str], source: str = "unknown") -> List[GuardResult]:
+        """Convenience: guard N inputs concurrently, results in order."""
+        jobs = [GuardJob(kind="input", payload=t, context=source) for t in texts]
+        return [j.result for j in self.guard_batch(jobs)]
+
+    def batch_diffs(self, diffs: List[str]) -> List[GuardResult]:
+        """Convenience: scan N code diffs concurrently, results in order."""
+        jobs = [GuardJob(kind="commit", payload=d) for d in diffs]
+        return [j.result for j in self.guard_batch(jobs)]

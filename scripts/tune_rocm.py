@@ -38,6 +38,7 @@ class GpuProfile:
     heap_size_gb: int = 80
     cache_alloc_gb: int = 80
     n_threads_batch: int = 4
+    gfx_override: str = ""   # HSA_OVERRIDE_GFX_VERSION fallback, e.g. "9.4.0"
     notes: str = ""
 
     @property
@@ -45,12 +46,52 @@ class GpuProfile:
         return self.vram_bytes / (1024 ** 3)
 
     def as_env(self) -> dict:
-        return {
+        env = {
             "GPU_MAX_HEAP_SIZE": str(self.heap_size_gb),
             "GPU_MAX_ALLOC_FOR_CACHING_ALLOCATOR": str(self.cache_alloc_gb),
             "PYTORCH_HIP_ALLOC_CONF": "expandable_segments:True",
             "WARDEN_LLM_N_THREADS_BATCH": str(self.n_threads_batch),
         }
+        if self.gfx_override:
+            env["HSA_OVERRIDE_GFX_VERSION"] = self.gfx_override
+        return env
+
+
+# Product-name substrings → HSA_OVERRIDE_GFX_VERSION value.
+#
+# Why this fallback exists: ROCm ships HIP code objects for a specific
+# gfx target (gfx90a for MI250, gfx942 for MI300X, gfx1100 for RX 7900
+# XTX). If the bundled binaries were built for a different target (a
+# frequent llama.cpp-ROCm packaging mismatch), the runtime errors with
+# "HSA_STATUS_ERROR_INVALID_CODE_OBJECT" and the GPU is unusable. Setting
+# HSA_OVERRIDE_GFX_VERSION forces the HSA runtime to treat the card as
+# the requested arch — a last-resort workaround that turns a hard crash
+# into a runnable (if not optimal) model.
+GFX_OVERRIDES = (
+    ("MI300", "9.4.0"),      # MI300X / MI300A
+    ("MI250", "9.0.0"),      # MI250 / MI250X
+    ("MI210", "9.0.0"),
+    ("MI100", "9.0.6"),
+    ("RX 7900", "11.0.0"),   # RDNA3 (also W7900 / gfx1100)
+    ("W7900", "11.0.0"),
+    ("RX 6900", "10.3.0"),   # RDNA2 (also W6800 / gfx1030)
+    ("W6800", "10.3.0"),
+    ("RX 6800", "10.3.0"),
+    ("RX 6700", "10.3.0"),
+    ("RX 6600", "10.3.0"),
+)
+
+
+def detect_gfx_override(gpu_name: str) -> str:
+    """Map a detected product name to its HSA_OVERRIDE_GFX_VERSION.
+
+    Empty string = no override recommended (the runtime should detect
+    the target itself; forcing a wrong value is worse than none).
+    """
+    for needle, gfx in GFX_OVERRIDES:
+        if needle.lower() in gpu_name.lower():
+            return gfx
+    return ""
 
 
 def _run(cmd: list[str]) -> tuple[int, str]:
@@ -63,8 +104,14 @@ def _run(cmd: list[str]) -> tuple[int, str]:
         return 1, ""
 
 
-def detect_gpu() -> GpuProfile:
-    """Probe rocm-smi for the GPU product name + VRAM."""
+def detect_gpu(force_gfx: str = "") -> GpuProfile:
+    """Probe rocm-smi for the GPU product name + VRAM.
+
+    `force_gfx` (e.g. "9.4.0") overrides auto-detection of
+    HSA_OVERRIDE_GFX_VERSION — use when the judge's card is known but
+    rocm-smi product detection is unavailable, or to test a different
+    gfx target than the auto-mapped one.
+    """
     profile = GpuProfile()
 
     rc, out = _run(["rocm-smi", "--showproductname", "--showmeminfo", "vram", "--json"])
@@ -89,6 +136,13 @@ def detect_gpu() -> GpuProfile:
                                 pass
         except Exception:
             pass
+
+    # HSA_OVERRIDE_GFX_VERSION: explicit flag wins, else auto-map from
+    # product name, else empty (no override — the runtime can detect it).
+    if force_gfx:
+        profile.gfx_override = force_gfx
+    else:
+        profile.gfx_override = detect_gfx_override(profile.gpu_name)
 
     # Pick caps based on detected VRAM. Hold back 20% for OS / Tier 1 / KV.
     if profile.vram_bytes > 0:
@@ -164,9 +218,12 @@ def main() -> int:
                         help="Render as Dockerfile ENV block (default: bash export)")
     parser.add_argument("--apply", action="store_true",
                         help="Write to current shell environment via os.environ (Linux send-to-shell)")
+    parser.add_argument("--gfx-version", default="",
+                        help="Force HSA_OVERRIDE_GFX_VERSION (e.g. 9.4.0). Auto-detected from "
+                             "product name when omitted; empty if no override is recommended.")
     args = parser.parse_args()
 
-    profile = detect_gpu()
+    profile = detect_gpu(force_gfx=args.gfx_version)
     block = render_docker(profile) if args.docker else render_bash(profile)
     print(block, file=sys.stdout if not args.apply else sys.stderr)
 
