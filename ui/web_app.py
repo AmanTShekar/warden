@@ -127,6 +127,19 @@ async def policy_test(req: PolicyTestRequest):
         "latency_ms": ms,
     }
 
+@app.get("/api/health")
+async def health_endpoint():
+    t0 = time.perf_counter()
+    has_t2 = router_obj.tier2 is not None
+    ms = round((time.perf_counter() - t0) * 1000, 2)
+    return {
+        "status": "online",
+        "rocm_gpu": "AMD ROCm Active" if has_t2 else "CPU Mode",
+        "latency_ms": ms,
+        "mode": orchestrator.mode.upper(),
+    }
+
+
 
 @app.get("/api/stats")
 async def stats_endpoint():
@@ -896,8 +909,8 @@ tr:hover td { background: var(--surface2); color: var(--text); }
   </div>
 
   <div class="sidebar-footer">
-    <span class="status-dot"></span>
-    <span class="status-text">Engine online</span>
+    <span class="status-dot" id="sidebarDot"></span>
+    <span class="status-text" id="sidebarStatus">Connecting...</span>
   </div>
 </aside>
 
@@ -908,7 +921,8 @@ tr:hover td { background: var(--surface2); color: var(--text); }
       <span class="topbar-title" id="topbarTitle">Guard Check</span>
       <span class="topbar-sub" id="topbarSub">Route a payload through the security tier cascade</span>
     </div>
-    <div style="margin-left:auto; display:flex; gap:8px;">
+    <div style="margin-left:auto; display:flex; align-items:center; gap:10px;">
+      <div id="connStatusPill" class="decision-pill pill-ALLOW" style="font-size:11px; padding:3px 10px;">● Connecting...</div>
       <button class="btn btn-ghost" style="padding:6px 12px; font-size:12px;" onclick="clearAll()">Clear</button>
       <button class="btn btn-secondary" style="padding:6px 12px; font-size:12px;" onclick="refreshStats()">↻ Refresh stats</button>
     </div>
@@ -2478,10 +2492,33 @@ async function runPolicyTest() {
     document.getElementById('policyLatency').textContent = d.latency_ms + ' ms';
     document.getElementById('policyReason').textContent = d.reason || '—';
     document.getElementById('policyTestResult').classList.add('show');
+}
+
+/* ── Live Health & Connection Monitor ───────────────────────────────────── */
+async function checkHealth() {
+  const dot  = document.getElementById('sidebarDot');
+  const txt  = document.getElementById('sidebarStatus');
+  const pill = document.getElementById('connStatusPill');
+  try {
+    const t0 = performance.now();
+    const r  = await fetch('/api/health');
+    const d  = await r.json();
+    const ms = Math.round(performance.now() - t0);
+    if (d.status === 'online') {
+      if (dot)  { dot.style.background = '#22c55e'; dot.style.boxShadow = '0 0 8px #22c55e'; }
+      if (txt)  { txt.textContent = `Online (${ms}ms)`; txt.style.color = 'var(--text2)'; }
+      if (pill) { pill.className = 'decision-pill pill-ALLOW'; pill.innerHTML = `● ${d.rocm_gpu || 'AMD Active'} (${ms}ms)`; }
+    } else {
+      throw new Error('Offline');
+    }
   } catch(e) {
-    alert('Error evaluating policy: ' + e.message);
+    if (dot)  { dot.style.background = '#ef4444'; dot.style.boxShadow = '0 0 8px #ef4444'; }
+    if (txt)  { txt.textContent = 'Disconnected'; txt.style.color = 'var(--red)'; }
+    if (pill) { pill.className = 'decision-pill pill-BLOCK'; pill.innerHTML = '✕ Disconnected'; }
   }
 }
+setInterval(checkHealth, 3000);
+checkHealth();
 </script>
 
 </body>

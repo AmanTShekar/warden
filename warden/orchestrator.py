@@ -113,9 +113,9 @@ class WardenOrchestrator:
         logger.info(f"[Orchestrator] Guarding tool call: {tool_name}")
         
         # 1. CaMeL Capability Tracker (Data Flow)
-        data_flow_safe, violation = self.camel.check_tool_call(tool_name, args)
-        if not data_flow_safe:
-            msg = f"Data flow violation: {violation}"
+        is_safe = self.camel.check_tool_call(tool_name, args)
+        if not is_safe:
+            msg = f"Data flow or policy violation on tool '{tool_name}'"
             if self.mode == "shadow":
                 logger.warning(f"[Orchestrator][SHADOW MODE] {msg}")
             else:
