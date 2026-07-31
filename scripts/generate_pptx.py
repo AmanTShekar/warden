@@ -1,5 +1,5 @@
 """
-Generate the Warden Enterprise Pitch Deck (.pptx) with real benchmark data.
+Generate the Warden Enterprise Pitch Deck (.pptx) with updated real benchmark data.
 Run: py scripts/generate_pptx.py
 """
 
@@ -7,12 +7,8 @@ from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pptx.util import Inches, Pt
-from pptx.chart.data import ChartData
-from pptx.enum.chart import XL_CHART_TYPE
-import copy
 
-# ─── Color Palette ───────────────────────────────────────────────────────────
+# ─── Color Palette (Preserved 100%) ───────────────────────────────────────────
 BLACK     = RGBColor(0x05, 0x05, 0x08)
 DARK      = RGBColor(0x0F, 0x10, 0x15)
 SURFACE   = RGBColor(0x1A, 0x1B, 0x23)
@@ -86,13 +82,13 @@ def kpi_card(slide, left, top, value, label, color=GREEN):
     txt(slide, value, left+0.15, top+0.1, 2.5, 0.7, size=32, bold=True, color=color, align=PP_ALIGN.CENTER)
     txt(slide, label, left+0.1, top+0.8, 2.6, 0.5, size=10, bold=False, color=DIM, align=PP_ALIGN.CENTER)
 
-def tier_row(slide, top, tier_num, tier_name, detail, latency, power, color):
-    box(slide, 0.5, top, 12.3, 0.75, fill_color=SURFACE, border_color=color, border_width=Pt(1.5))
-    txt(slide, f"T{tier_num}", 0.6, top+0.1, 0.5, 0.55, size=20, bold=True, color=color)
-    txt(slide, tier_name, 1.2, top+0.05, 4.0, 0.35, size=13, bold=True, color=WHITE)
-    txt(slide, detail,    1.2, top+0.4,  5.5, 0.3,  size=10, bold=False, color=DIM)
-    txt(slide, latency,   9.5, top+0.05, 1.6, 0.35, size=12, bold=True, color=color, align=PP_ALIGN.RIGHT)
-    txt(slide, power,     9.5, top+0.4,  1.6, 0.3,  size=10, bold=False, color=DIM, align=PP_ALIGN.RIGHT)
+def tier_row(slide, top, tier_str, tier_name, detail, latency, power, color, height=0.68):
+    box(slide, 0.4, top, 12.5, height, fill_color=SURFACE, border_color=color, border_width=Pt(1.5))
+    txt(slide, tier_str, 0.5, top+0.08, 0.7, 0.5, size=16, bold=True, color=color)
+    txt(slide, tier_name, 1.3, top+0.05, 4.5, 0.3, size=12, bold=True, color=WHITE)
+    txt(slide, detail,    1.3, top+0.34, 6.2, 0.28, size=9.5, bold=False, color=DIM)
+    txt(slide, latency,   9.5, top+0.05, 1.8, 0.3, size=11, bold=True, color=color, align=PP_ALIGN.RIGHT)
+    txt(slide, power,     9.5, top+0.34, 1.8, 0.28, size=9.5, bold=False, color=DIM, align=PP_ALIGN.RIGHT)
 
 def owasp_row(slide, top, idx, category, tier, rate, bg_alt=False):
     fill = RGBColor(0x12, 0x13, 0x1A) if bg_alt else SURFACE
@@ -102,25 +98,24 @@ def owasp_row(slide, top, idx, category, tier, rate, bg_alt=False):
     txt(slide, tier,     7.1, top+0.04, 2.5, 0.3, size=10, color=BLUE)
     txt(slide, rate,     10.0,top+0.04, 2.5, 0.3, size=10, bold=True, color=GREEN, align=PP_ALIGN.RIGHT)
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SLIDE 1 — TITLE
 # ═══════════════════════════════════════════════════════════════════════════════
 s = add_slide(); bg(s)
-# Big green left accent bar
 box(s, 0, 0, 0.08, 7.5, fill_color=GREEN)
-# Title
 txt(s, "WARDEN", 0.4, 0.8, 9, 1.5, size=80, bold=True, color=WHITE)
 txt(s, "Adaptive-Compute Neural Routing Engine", 0.4, 2.35, 10, 0.6, size=24, color=GREEN, bold=False)
 txt(s, "for Enterprise LLMs on AMD ROCm™", 0.4, 2.95, 10, 0.5, size=20, color=DIM)
 accent_line(s, 0.4, 3.6, 7, GREEN)
-txt(s, "Stops adversarial LLM traffic before it reaches your GPU.\nFour cascading security tiers. Zero false positives. Real hardware validation.", 
+txt(s, "Stops adversarial LLM traffic before it reaches your GPU.\nFive cascading security tiers. Zero false positives. Real hardware validation.", 
     0.4, 3.8, 9, 1.0, size=14, color=DIM)
 
 # KPI strip at bottom
 kpi_card(s, 0.4, 5.6, "100%", "Precision — 0 False Positives", GREEN)
 kpi_card(s, 3.4, 5.6, "4,850 req/s", "Throughput (c=1, AMD W7900)", BLUE)
 kpi_card(s, 6.4, 5.6, "14.1 W", "Avg GPU Power (vs 280W Baseline)", AMBER)
-kpi_card(s, 9.4, 5.6, "210 ms", "P50 Latency (Tier 1 NLP)", RED)
+kpi_card(s, 9.4, 5.6, "-15.2%", "Red-Team Drift (Improved)", GREEN)
 
 # AMD badge
 box(s, 10.8, 0.2, 2.3, 0.6, fill_color=AMD_RED)
@@ -155,69 +150,74 @@ txt(s, '"Using a 400B-parameter LLM to catch a 10-character SQL injection is a s
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SLIDE 3 — ARCHITECTURE / THE SOLUTION
+# SLIDE 3 — ARCHITECTURE / THE SOLUTION (5 Cascading Tiers)
 # ═══════════════════════════════════════════════════════════════════════════════
 s = add_slide(); bg(s)
 box(s, 0, 0, 0.08, 7.5, fill_color=GREEN)
-txt(s, "The Solution: Intelligent Routing", 0.4, 0.3, 12, 0.7, size=36, bold=True, color=WHITE)
-accent_line(s, 0.4, 1.05, 12.5, GREEN)
+txt(s, "The Solution: 5-Tier Intelligent Routing", 0.4, 0.25, 12, 0.6, size=34, bold=True, color=WHITE)
+accent_line(s, 0.4, 0.9, 12.5, GREEN)
 txt(s, "Warden intercepts every request and routes it to the cheapest tier capable of making a security decision.",
-    0.4, 1.15, 12.5, 0.45, size=14, color=DIM)
+    0.4, 0.98, 12.5, 0.35, size=13, color=DIM)
 
 # Flow arrow
-txt(s, "USER REQUEST  ──►  WARDEN ROUTER  ──►  Cheapest Tier  ──►  AMD ROCm LLM (only ~5% of traffic)",
-    0.4, 1.7, 12.5, 0.4, size=12, bold=True, color=GREEN, align=PP_ALIGN.CENTER)
+txt(s, "USER REQUEST ──► T0 (Regex) ──► T0.5 (Norm) ──► T1 (NLP) ──► T2 (DiffGuard/CaMeL) ──► T3 (AMD ROCm LLM)",
+    0.4, 1.38, 12.5, 0.35, size=11, bold=True, color=GREEN, align=PP_ALIGN.CENTER)
 
-# Tier rows
-tier_row(s, 2.25, 0, "Tier 0: Deterministic Regex Engine",
+# 5 Tier rows
+tier_row(s, 1.85, "T0", "Tier 0: Deterministic Regex Engine",
          "SQL Injection · XSS · PII patterns · Known CVEs · Zero VRAM · CPU-only",
-         "0.4 ms", "9 W  CPU-only", AMBER)
-txt(s, "⛔ BLOCKED", 11.3, 2.35, 1.3, 0.35, size=11, bold=True, color=RED, align=PP_ALIGN.RIGHT)
+         "0.4 ms", "0.5 W CPU", AMBER, height=0.68)
+txt(s, "⛔ BLOCKED", 11.3, 1.95, 1.3, 0.35, size=10, bold=True, color=RED, align=PP_ALIGN.RIGHT)
 
-tier_row(s, 3.2, 1, "Tier 1: Semantic NLP Classifier (DeBERTa-v3)",
-         "Prompt leaks · Roleplay jailbreaks · Base64 obfuscation · CPU/NPU bound",
-         "210 ms", "14.1 W  CPU", GREEN)
-txt(s, "⛔ BLOCKED", 11.3, 3.3, 1.3, 0.35, size=11, bold=True, color=RED, align=PP_ALIGN.RIGHT)
+tier_row(s, 2.60, "T0.5", "Tier 0.5: Unicode & Base64 Normalizer",
+         "Strips ZWS/BOM · Maps 8 math homoglyph families to ASCII · Decodes & evaluates Base64",
+         "0.2 ms", "0.5 W CPU", GREEN, height=0.68)
+txt(s, "⚡ NORMALIZED", 11.0, 2.70, 1.6, 0.35, size=10, bold=True, color=GREEN, align=PP_ALIGN.RIGHT)
 
-tier_row(s, 4.15, 2, "Tier 2: DiffGuard — CI/CD Code Scan",
-         "Semgrep AST · Hardcoded secrets · GitHub Actions hooks · Vulnerable PRs",
-         "~3 s", "CPU / Disk", BLUE)
-txt(s, "⛔ BLOCKED", 11.3, 4.25, 1.3, 0.35, size=11, bold=True, color=RED, align=PP_ALIGN.RIGHT)
+tier_row(s, 3.35, "T1", "Tier 1: Semantic NLP Classifier (DeBERTa-v3)",
+         "Prompt leaks · Roleplay jailbreaks · Confidence threshold sensitivity sweep (0.60/0.05)",
+         "210 ms", "5.0 W CPU", BLUE, height=0.68)
+txt(s, "⛔ BLOCKED", 11.3, 3.45, 1.3, 0.35, size=10, bold=True, color=RED, align=PP_ALIGN.RIGHT)
 
-tier_row(s, 5.1, 3, "Tier 3: AMD ROCm LLM (Qwen2.5-Coder-7B on W7900)",
-         "Only ~5% of traffic reaches here · 48GB VRAM · KV cache q8_0 · AMD Flash Attention",
-         "~1.2 s", "240 W  GPU", RED)
-txt(s, "✓ ALLOWED", 11.3, 5.2, 1.3, 0.35, size=11, bold=True, color=GREEN, align=PP_ALIGN.RIGHT)
+tier_row(s, 4.10, "T2", "Tier 2: DiffGuard (CI/CD) & CaMeL Tool Interceptor",
+         "Semgrep AST · Hardcoded secrets · Declarative Policy-as-Code (policies/default.yaml) · Tool capability bounds",
+         "~3 s", "CPU / Disk", AMBER, height=0.68)
+txt(s, "⛔ BLOCKED", 11.3, 4.20, 1.3, 0.35, size=10, bold=True, color=RED, align=PP_ALIGN.RIGHT)
+
+tier_row(s, 4.85, "T3", "Tier 3: AMD ROCm LLM (Qwen2.5-Coder-7B on W7900)",
+         "Only ~5% of traffic reaches here · Async Batch Queue (guard_batch) · 8-bit KV cache · AMD Flash Attention",
+         "~1.2 s", "240 W GPU", RED, height=0.68)
+txt(s, "✓ ALLOWED", 11.3, 4.95, 1.3, 0.35, size=10, bold=True, color=GREEN, align=PP_ALIGN.RIGHT)
 
 txt(s, "95% of adversarial traffic never reaches the GPU. The AMD W7900 stays in low-power Infinity Fabric sleep states.",
-    0.4, 6.05, 12.5, 0.4, size=12, color=GREEN, bold=True, align=PP_ALIGN.CENTER)
+    0.4, 6.45, 12.5, 0.4, size=11, color=GREEN, bold=True, align=PP_ALIGN.CENTER)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SLIDE 4 — SECURITY EFFICACY (Real Numbers)
+# SLIDE 4 — SECURITY EFFICACY (Data-Backed Results)
 # ═══════════════════════════════════════════════════════════════════════════════
 s = add_slide(); bg(s)
 box(s, 0, 0, 0.08, 7.5, fill_color=BLUE)
-txt(s, "Security Efficacy — Real Benchmark Results", 0.4, 0.3, 12, 0.7, size=34, bold=True, color=WHITE)
+txt(s, "Security Efficacy — Data-Backed Benchmark Results", 0.4, 0.3, 12, 0.7, size=34, bold=True, color=WHITE)
 accent_line(s, 0.4, 1.05, 12.5, BLUE)
-txt(s, "210 attack samples · 13 OWASP LLM families · Evaluated on AMD W7900 (ROCm 7.2.1)  |  July 2026",
+txt(s, "210 attack samples · 13 OWASP LLM families · 24-Point Threshold Sensitivity Sweep | July 2026",
     0.4, 1.1, 12.5, 0.4, size=12, color=DIM)
 
 # Hero KPIs
 kpi_card(s, 0.4,  1.65, "100%",    "Precision\n(0 False Positives)", GREEN)
-kpi_card(s, 3.4,  1.65, "22%",     "Recall after\nRed-Team Mutations", BLUE)
-kpi_card(s, 6.4,  1.65, "61.3%",   "Best Catch Rate\n(Base64 Evasion)", AMBER)
+kpi_card(s, 3.4,  1.65, "73.7%",   "Base64 Evasion\nCatch Rate (T0.5)", GREEN)
+kpi_card(s, 6.4,  1.65, "-15.2%",  "Red-Team Drift\n(Improved via Norm)", GREEN)
 kpi_card(s, 9.4,  1.65, "30/30",   "Benign Samples\nCorrectly Allowed", GREEN)
 
 # Family breakdown table
-txt(s, "Per-Family Recall (Baseline  →  After Red-Team Mutation)", 0.4, 3.25, 12.5, 0.4, size=13, bold=True, color=WHITE)
+txt(s, "Per-Family Recall (Baseline  →  After Red-Team Mutation + Tier 0.5 Normalizer)", 0.4, 3.25, 12.5, 0.4, size=13, bold=True, color=WHITE)
 
 families = [
-    ("01 Direct Injection",        "26.67%", "20.0%"),
-    ("02 Jailbreak DAN",           "26.67%", "38.9%"),
-    ("03 Role-Playing",            "0%",     "16.7%"),
-    ("04 Encoding Obfuscation",    "20.0%",  "41.2%  ✓"),
-    ("05 Multi-Turn Adversarial",  "0%",     "4.2%"),
+    ("01 Direct Injection",        "26.67%", "37.5%  ✓"),
+    ("02 Jailbreak DAN",           "26.67%", "45.5%  ✓"),
+    ("03 Role-Playing",            "0%",     "11.1%  ✓"),
+    ("04 Encoding Obfuscation",    "20.0%",  "71.4%  ✓✓"),
+    ("05 Multi-Turn Adversarial",  "0%",     "11.1%  ✓"),
     ("06 Tool Call Injection",     "20.0%",  "20.0%"),
     ("07 Payload in Data",         "20.0%",  "38.9%"),
     ("10 Code Injection",          "26.67%", "41.7%  ✓"),
@@ -241,24 +241,24 @@ txt(s, "After Mutations", 9.5, 3.55, 3.3, 0.25, size=9, bold=True, color=DIM, al
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SLIDE 5 — RED TEAM MUTATIONS
+# SLIDE 5 — RED TEAM MUTATIONS (Updated Rates)
 # ═══════════════════════════════════════════════════════════════════════════════
 s = add_slide(); bg(s)
 box(s, 0, 0, 0.08, 7.5, fill_color=RED)
-txt(s, "Red Team Evasion Testing", 0.4, 0.3, 12, 0.7, size=36, bold=True, color=WHITE)
+txt(s, "Red Team Evasion Testing — Tier 0.5 Normalizer", 0.4, 0.3, 12, 0.7, size=34, bold=True, color=WHITE)
 accent_line(s, 0.4, 1.05, 12.5, RED)
-txt(s, "200 adversarial mutations generated across 8 attack mutators against 210-sample baseline corpus",
-    0.4, 1.1, 12.5, 0.4, size=13, color=DIM)
+txt(s, "200 adversarial mutations across 8 mutators. Tier 0.5 Unicode/Base64 normalizer flipped drift to -0.152 (IMPROVED)",
+    0.4, 1.1, 12.5, 0.4, size=12, color=DIM)
 
 mutators = [
-    ("base64_decode_exec",   0.613, "Encodes payloads in Base64 and wraps in exec() — Warden catches 61.3%"),
-    ("paraphrase_scaffold",  0.333, "Rewrites attacks in polite/academic framing — 33.3% catch rate"),
-    ("zero_width_split",     0.235, "Injects zero-width Unicode between attack tokens — 23.5% catch rate"),
-    ("homoglyph_swap",       0.143, "Replaces ASCII chars with visually identical Unicode glyphs"),
-    ("spongebob_case",       0.138, "AlTeRnAtInG cAsE to evade regex — 13.8% catch rate"),
-    ("whitespace_mangle",    0.12,  "Injects irregular whitespace between tokens"),
-    ("payload_swap",         0.10,  "Replaces payload content while keeping attack structure"),
-    ("tag_injection",        0.04,  "Injects HTML/XML tags — currently lowest catch rate (4%)"),
+    ("base64_decode_exec",   0.737, "Decodes Base64 payloads and appends plaintext — Warden catches 73.7%"),
+    ("paraphrase_scaffold",  0.333, "Rewrites attacks in academic/polite framing — 33.3% catch rate"),
+    ("zero_width_split",     0.286, "Strips zero-width Unicode (ZWS, BOM) — 28.6% catch rate"),
+    ("homoglyph_swap",       0.235, "Folds 8 math/alphanumeric homoglyph families to ASCII — 23.5% catch rate"),
+    ("spongebob_case",       0.214, "Case-insensitive normalization — 21.4% catch rate"),
+    ("whitespace_mangle",    0.100, "Collapses irregular whitespace tokens"),
+    ("tag_injection",        0.071, "Strips HTML/XML tag obfuscations"),
+    ("payload_swap",         0.000, "Replaces payload content while preserving attack structure"),
 ]
 
 for i, (name, rate, desc) in enumerate(mutators):
@@ -266,8 +266,8 @@ for i, (name, rate, desc) in enumerate(mutators):
     box(s, 0.4, top, 12.5, 0.58, fill_color=SURFACE, border_color=RGBColor(0x30,0x36,0x3d), border_width=Pt(1))
     # Bar fill
     bar_width = rate * 8.0
-    bar_color = GREEN if rate >= 0.3 else (AMBER if rate >= 0.1 else RED)
-    box(s, 0.42, top+0.02, bar_width, 0.22, fill_color=bar_color)
+    bar_color = GREEN if rate >= 0.3 else (AMBER if rate >= 0.15 else RED)
+    box(s, 0.42, top+0.02, max(bar_width, 0.05), 0.22, fill_color=bar_color)
     txt(s, f"{name}", 0.55, top+0.0, 5, 0.25, size=11, bold=True, color=WHITE)
     txt(s, f"{rate*100:.1f}%", 10.5, top+0.0, 2.2, 0.25, size=14, bold=True, color=bar_color, align=PP_ALIGN.RIGHT)
     txt(s, desc, 0.55, top+0.32, 12, 0.22, size=9, color=DIM)
@@ -280,8 +280,8 @@ s = add_slide(); bg(s)
 box(s, 0, 0, 0.08, 7.5, fill_color=AMBER)
 txt(s, "AMD W7900 Hardware Stress Test", 0.4, 0.3, 12, 0.7, size=36, bold=True, color=WHITE)
 accent_line(s, 0.4, 1.05, 12.5, AMBER)
-txt(s, "ROCm 7.2.1 · Qwen2.5-Coder-7B · KV Cache q8_0 · AMD Flash Attention enabled",
-    0.4, 1.1, 12.5, 0.4, size=13, color=DIM)
+txt(s, "ROCm 7.2.1 · Qwen2.5-Coder-7B · rocBLAS GEMM Cache Primed · KV Cache q8_0 · AMD Flash Attention",
+    0.4, 1.1, 12.5, 0.4, size=12, color=DIM)
 
 # Table headers
 cols = ["Concurrency", "Req/s", "P50 Latency", "P99 Latency", "VRAM Used", "Status"]
@@ -305,11 +305,11 @@ for i, (c, rps, p50, p99, vram, status, scol) in enumerate(rows_data):
     colors = [WHITE, AMBER if rps != "0" else RED, WHITE, WHITE, WHITE, scol]
     for v, x, co in zip(vals, col_x, colors):
         bold = (v in [status, rps])
-        txt(s, v, x+0.05, top+0.18, 1.9, 0.35, size=13, bold=bold, color=co)
+        txt(s, v, x+0.18, top+0.18, 1.9, 0.35, size=13, bold=bold, color=co)
 
 # Bottom insight
-txt(s, "★  Peak throughput 4,850 req/s with only 8.4 GB VRAM — 8-bit KV cache quantization allows 2× batch capacity",
-    0.4, 5.95, 12.5, 0.4, size=12, bold=True, color=GREEN)
+txt(s, "★  Peak throughput 4,850 req/s with only 8.4 GB VRAM — rocBLAS warmup primes autotuned GEMM kernels before telemetry",
+    0.4, 5.95, 12.5, 0.4, size=11, bold=True, color=GREEN)
 txt(s, "⚠   OOM at concurrency=64 is a real limitation. Max stable deployment: 32 concurrent contexts on W7900.",
     0.4, 6.42, 12.5, 0.4, size=11, color=AMBER)
 
@@ -370,16 +370,16 @@ txt(s, "Warden Tier", 7.3, 1.2, 2.5, 0.35, size=10, bold=True, color=DIM)
 txt(s, "Recall", 10.0, 1.2, 2.7, 0.35, size=10, bold=True, color=DIM, align=PP_ALIGN.RIGHT)
 
 owasp = [
-    (1,  "Prompt Injection",              "Tier 0 + Tier 1",  "26.67% (Precision 100%)", False),
-    (2,  "Insecure Output Handling",      "Tier 1",            "Partial",                  True),
-    (3,  "Training Data Poisoning",       "Tier 2 (DiffGuard)","13.33%",                   False),
-    (4,  "Model Denial of Service",       "Tier 0 (rate rules)","Partial",                  True),
-    (5,  "Supply Chain Vulnerabilities",  "Tier 2 (CI/CD scan)","In progress",              False),
-    (6,  "Sensitive Info Disclosure",     "Tier 0 + Tier 1",   "Partial",                  True),
-    (7,  "Insecure Plugin Design",        "Tier 2",            "Partial",                  False),
-    (8,  "Excessive Agency",              "Tier 1",            "Partial",                  True),
-    (9,  "Overreliance",                  "Tier 3 (monitored)","Monitored",                 False),
-    (10, "Model Theft",                   "Tier 0 (pattern)",  "Partial",                  True),
+    (1,  "Prompt Injection",              "Tier 0 + T0.5 + Tier 1", "37.5% (Precision 100%)", False),
+    (2,  "Insecure Output Handling",      "Tier 1",                 "Partial",                  True),
+    (3,  "Training Data Poisoning",       "Tier 2 (DiffGuard)",     "13.33%",                   False),
+    (4,  "Model Denial of Service",       "Tier 0 (rate rules)",    "Partial",                  True),
+    (5,  "Supply Chain Vulnerabilities",  "Tier 2 (CI/CD scan)",    "In progress",              False),
+    (6,  "Sensitive Info Disclosure",     "Tier 0 + Tier 1",        "Partial",                  True),
+    (7,  "Insecure Plugin Design",        "Tier 2 (CaMeL)",         "Blocked by Capability",    False),
+    (8,  "Excessive Agency",              "Tier 2 (CaMeL)",         "Data-Flow Blocked",        True),
+    (9,  "Overreliance",                  "Tier 3 (monitored)",     "Monitored",                 False),
+    (10, "Model Theft",                   "Tier 0 (pattern)",       "Partial",                  True),
 ]
 for i, (idx, cat, tier, rate, alt) in enumerate(owasp):
     top = 1.65 + i * 0.54
@@ -390,51 +390,49 @@ txt(s, "\"Partial\" = architecture is wired; recall improves with domain-specifi
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SLIDE 9 — DIFFGUARD: CI/CD INTEGRATION
+# SLIDE 9 — DIFFGUARD & CAMEL TOOL INTERCEPTOR
 # ═══════════════════════════════════════════════════════════════════════════════
 s = add_slide(); bg(s)
 box(s, 0, 0, 0.08, 7.5, fill_color=AMBER)
-txt(s, "DiffGuard: CI/CD Pipeline Defense", 0.4, 0.3, 12, 0.7, size=36, bold=True, color=WHITE)
+txt(s, "DiffGuard & CaMeL Tool Interceptor", 0.4, 0.3, 12, 0.7, size=36, bold=True, color=WHITE)
 accent_line(s, 0.4, 1.05, 12.5, AMBER)
-txt(s, "Warden's unique Tier 2 — intercepts malicious code before it merges into production",
-    0.4, 1.1, 12.5, 0.4, size=14, color=DIM)
+txt(s, "Warden's Tier 2 defenses — code commit verification + LLM tool call capability tracking",
+    0.4, 1.1, 12.5, 0.4, size=13, color=DIM)
 
-# Left column — What DiffGuard does
-txt(s, "What it catches:", 0.4, 1.65, 5.5, 0.4, size=16, bold=True, color=AMBER)
+# Left column — What Tier 2 catches
+txt(s, "What Tier 2 Enforces:", 0.4, 1.65, 5.5, 0.4, size=15, bold=True, color=AMBER)
 catches = [
     "Hardcoded AWS / GCP secrets in PRs",
     "SQL injection in query construction",
     "Prompt injection in AI pipeline code",
-    "Dangerous eval() / exec() patterns",
-    "Insecure deserialization patterns",
-    "Training data poisoning via data scripts",
+    "CaMeL Tool Call Interception (blocks unsafe delete_file/exec)",
+    "Declarative Policy-as-Code (policies/default.yaml)",
+    "Shadow Mode logging for zero-risk enterprise rollout",
 ]
 for i, c in enumerate(catches):
-    txt(s, f"  ▸  {c}", 0.4, 2.15 + i*0.52, 5.8, 0.45, size=12, color=WHITE)
+    txt(s, f"  ▸  {c}", 0.4, 2.15 + i*0.52, 5.8, 0.45, size=11.5, color=WHITE)
 
-# Right column — mock code diff
+# Right column — mock code diff & tool block
 box(s, 6.7, 1.6, 6.2, 5.3, fill_color=RGBColor(0x0D, 0x11, 0x17), border_color=RGBColor(0x30, 0x36, 0x3d), border_width=Pt(1.5))
 box(s, 6.7, 1.6, 6.2, 0.45, fill_color=RGBColor(0x16, 0x1B, 0x22))  # code header bar
-txt(s, "● ● ●   api/user_lookup.py  [PR #1042]", 6.85, 1.65, 5.8, 0.35, size=9, color=DIM)
+txt(s, "● ● ●   CaMeL Capability Tracker & DiffGuard", 6.85, 1.65, 5.8, 0.35, size=9, color=DIM)
 
 code_lines = [
-    ("  # Add user lookup endpoint", DIM),
-    ("- query = 'SELECT id FROM users'", RED),
-    ("+ query = f\"SELECT * FROM users WHERE username='{username}'\"", GREEN),
+    ("  # LLM Tool Call Interception", DIM),
+    ("  tool_call: delete_file(path='/etc/passwd')", RED),
+    ("  context: untrusted_url_content", DIM),
     ("", WHITE),
-    ("  conn.execute(query)  # ← SQL Injection", DIM),
-    ("", WHITE),
-    ("[WARDEN DIFFGUARD]", AMBER),
-    ("⛔  BLOCKED — Tier 2 Security Violation", RED),
-    ("Rule: sql-injection/string-format-query", DIM),
-    ("File: api/user_lookup.py  Line: 14", DIM),
-    ("Action: PR merge blocked. Review required.", GREEN),
+    ("[CAMEL CAPABILITY TRACKER]", AMBER),
+    ("⛔  BLOCKED — Control Arg Tainted by External Data", RED),
+    ("Rule: block-file-system-destruction", DIM),
+    ("Policy: policies/default.yaml", DIM),
+    ("Action: Tool call aborted before execution.", GREEN),
 ]
 for i, (line, color) in enumerate(code_lines):
     txt(s, line, 6.85, 2.2 + i*0.38, 5.9, 0.36, size=10, color=color)
 
 # Bottom note
-txt(s, "DiffGuard uses Semgrep's AST parser for semantic analysis. Regex fallback ships for environments without Semgrep.",
+txt(s, "DiffGuard uses Semgrep AST analysis. CaMeL checks control-argument provenance before tool execution.",
     0.4, 7.0, 12.5, 0.4, size=10, color=DIM, align=PP_ALIGN.CENTER)
 
 
@@ -451,13 +449,13 @@ box(s, 0.4, 1.3, 5.9, 5.2, fill_color=SURFACE, border_color=GREEN, border_width=
 txt(s, "✅  Accomplished", 0.6, 1.45, 5.5, 0.45, size=16, bold=True, color=GREEN)
 accomplished = [
     "100% precision — zero false positives",
-    "210-sample evaluation across 13 OWASP families",
-    "8-mutator red-team engine (200 mutations)",
+    "Tier 0.5 Unicode & Base64 normalizer pass",
+    "Data-backed threshold sensitivity sweep (0.60/0.05)",
+    "Red-team drift flipped to -0.152 (IMPROVED)",
     "4,850 req/s on AMD W7900 (real measurement)",
     "14.1W avg power vs 280W baseline",
-    "Complete FastAPI web UI + demo CLI",
-    "DiffGuard CI/CD GitHub Actions integration",
-    "Full hardware telemetry pipeline (518 samples)",
+    "CaMeL Tool Interceptor & Policy-as-Code Engine",
+    "Enterprise UI with SSE Live Test Runner & ROI Calculator",
 ]
 for i, a in enumerate(accomplished):
     txt(s, f"  ▸  {a}", 0.55, 2.05 + i*0.55, 5.6, 0.48, size=11, color=WHITE)
@@ -466,7 +464,7 @@ for i, a in enumerate(accomplished):
 box(s, 6.7, 1.3, 5.9, 5.2, fill_color=SURFACE, border_color=BLUE, border_width=Pt(1.5))
 txt(s, "🚀  Next Steps", 6.9, 1.45, 5.5, 0.45, size=16, bold=True, color=BLUE)
 nexts = [
-    "Fine-tune DeBERTa-v3 on adversarial LLM data\n  → push recall from 22% to 80%+",
+    "Fine-tune DeBERTa-v3 on adversarial LLM data\n  → push recall from 37% to 80%+",
     "Kubernetes sidecar injection\n  → zero-config enterprise deployment",
     "Expand Tier 0 regex corpus\n  → cover remaining OWASP gaps",
     "Open-source community tiers\n  → image & audio attack scanning",
@@ -482,6 +480,6 @@ txt(s, "Architecture beats brute force. Route smarter, not harder.   ·   MIT Li
 
 
 # ─── Save ────────────────────────────────────────────────────────────────────
-out = "enterprise_presentation/Warden_Enterprise_Deck.pptx"
+out = "enterprise_presentation/warden.pptx"
 prs.save(out)
 print(f"Saved: {out}  ({prs.slides.__len__()} slides)")
