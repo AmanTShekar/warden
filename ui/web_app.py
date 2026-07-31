@@ -1,10 +1,14 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Query
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 import logging
 import time
-from typing import Optional
+import asyncio
+import json
+import sys
+import pathlib
+from typing import Optional, AsyncIterator
 
 from warden.config import WardenConfig
 from warden.cli import create_router
@@ -137,7 +141,210 @@ async def bench_sweep():
     if not p.exists(): return {"error": "Run: python scripts/sweep_thresholds.py"}
     return json.loads(p.read_text())
 
-@app.get("/api/history")
+# ── Test Runner (SSE streaming) ───────────────────────────────────────────────
+REPO = pathlib.Path(__file__).resolve().parent.parent
+
+TEST_SUITES = {
+    "unit":    {"label": "Unit Tests (115)",   "cmd": [sys.executable, "-m", "pytest", "tests/", "-v", "--tb=short", "--no-header"]},
+    "eval":    {"label": "Attack Eval (210 samples)", "cmd": [sys.executable, "scripts/eval_attacks.py", "--corpus", "attack_samples_v2/manifest.jsonl", "--out-dir", "benchmarks/results", "--label", "attack_eval"]},
+    "redteam": {"label": "Red-Team Mutations", "cmd": [sys.executable, "scripts/red_team.py", "--corpus", "attack_samples_v2/manifest.jsonl", "--baseline", "benchmarks/results/attack_eval.json", "--out-dir", "benchmarks/results", "--n", "200", "--seed", "42", "--label", "red_team"]},
+    "sweep":   {"label": "Threshold Sweep",    "cmd": [sys.executable, "scripts/sweep_thresholds.py"]},
+    "stress":  {"label": "Stress Matrix",      "cmd": [sys.executable, "-c", "import csv; rows=list(csv.DictReader(open('benchmarks/2026-07-30-w7900-stress-test/stress_matrix_results.csv'))); [print(f\"c={r['Concurrency_Level']:>3s}  {r['Requests_Per_Second']:>6s} req/s  P50={r['Latency_P50_ms']}ms  VRAM={r['VRAM_Usage_GB']}GB  {r['Status']}\") for r in rows]; print('\\nDone — loaded from AMD W7900 stress run.')"]},
+    "normalizer": {"label": "Tier 0.5 Normalizer Tests", "cmd": [sys.executable, "-m", "pytest", "tests/test_tier0_5.py", "-v", "--tb=short"]},
+    "batch":   {"label": "Batch Queue Tests",  "cmd": [sys.executable, "-m", "pytest", "tests/test_batch_queue_and_tuning.py", "tests/test_routing.py", "-v", "--tb=short"]},
+}
+
+async def _stream_subprocess(cmd: list, cwd: str) -> AsyncIterator[str]:
+    """Run a command and yield SSE-formatted lines."""
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    yield f"data: {json.dumps({'type':'start','pid':proc.pid})}\n\n"
+    try:
+        async for raw in proc.stdout:
+            line = raw.decode("utf-8", errors="replace").rstrip("\n\r")
+            # Classify line for frontend colouring
+            ltype = "info"
+            ll = line.lower()
+            if "passed" in ll or "pass" in ll or "ok" in ll or "✓" in ll or "allow" in ll:
+                ltype = "ok"
+            elif "failed" in ll or "error" in ll or "exception" in ll or "✕" in ll or "block" in ll:
+                ltype = "err"
+            elif "warning" in ll or "warn" in ll or "flag" in ll:
+                ltype = "warn"
+            elif line.startswith("PASSED") or "PASS" in line:
+                ltype = "ok"
+            elif line.startswith("FAILED") or "FAIL" in line:
+                ltype = "err"
+            yield f"data: {json.dumps({'type': ltype, 'line': line})}\n\n"
+        rc = await proc.wait()
+        yield f"data: {json.dumps({'type':'done','rc':rc,'ok': rc==0})}\n\n"
+    except asyncio.CancelledError:
+        proc.kill()
+        yield f"data: {json.dumps({'type':'done','rc':-1,'ok':False,'msg':'Cancelled'})}\n\n"
+
+@app.get("/api/run/{suite}")
+async def run_suite(suite: str):
+    if suite not in TEST_SUITES:
+        return {"error": f"Unknown suite: {suite}. Valid: {list(TEST_SUITES.keys())}"}
+    s = TEST_SUITES[suite]
+    return StreamingResponse(
+        _stream_subprocess(s["cmd"], str(REPO)),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+@app.get("/api/suites")
+async def list_suites():
+    return {k: {"label": v["label"]} for k, v in TEST_SUITES.items()}
+
+
+# ── Benchmark Run History ─────────────────────────────────────────────────────
+RUNS_DIR = REPO / "benchmarks" / "results" / "runs"
+RUNS_DIR.mkdir(parents=True, exist_ok=True)
+
+def _list_runs() -> list[dict]:
+    """Return all saved benchmark runs sorted newest-first."""
+    runs = []
+    for f in sorted(RUNS_DIR.glob("*.json"), reverse=True):
+        try:
+            meta = json.loads(f.read_text())
+            runs.append({
+                "id": f.stem,
+                "label": meta.get("label", f.stem),
+                "suite": meta.get("suite", ""),
+                "ts": meta.get("ts", ""),
+                "ok": meta.get("ok", None),
+                "duration_s": meta.get("duration_s", None),
+                "summary": meta.get("summary", {}),
+            })
+        except Exception:
+            pass
+    return runs
+
+@app.get("/api/runs")
+async def get_runs():
+    return {"runs": _list_runs()}
+
+@app.get("/api/runs/{run_id}")
+async def get_run(run_id: str):
+    p = RUNS_DIR / f"{run_id}.json"
+    if not p.exists():
+        return {"error": "Run not found"}
+    return json.loads(p.read_text())
+
+@app.delete("/api/runs/{run_id}")
+async def delete_run(run_id: str):
+    p = RUNS_DIR / f"{run_id}.json"
+    if p.exists():
+        p.unlink()
+    return {"ok": True}
+
+async def _stream_and_save(suite_key: str, cmd: list, cwd: str, label: str) -> AsyncIterator[str]:
+    """Stream subprocess AND save full log + summary to a run JSON file."""
+    import datetime, re
+    run_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S") + f"_{suite_key}"
+    t_start = time.perf_counter()
+    lines_all: list[str] = []
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    yield f"data: {json.dumps({'type':'start','pid':proc.pid,'run_id':run_id})}\n\n"
+
+    try:
+        async for raw in proc.stdout:
+            line = raw.decode("utf-8", errors="replace").rstrip("\n\r")
+            lines_all.append(line)
+            ltype = "info"
+            ll = line.lower()
+            if re.search(r'\bpassed\b|\bok\b|✓|ALLOW|PASS(?:ED)?', line):
+                ltype = "ok"
+            elif re.search(r'\bfailed\b|\berror\b|\bexception\b|✕|FAIL', line):
+                ltype = "err"
+            elif re.search(r'\bwarn\b|\bflag\b', ll):
+                ltype = "warn"
+            yield f"data: {json.dumps({'type': ltype, 'line': line, 'run_id': run_id})}\n\n"
+
+        rc = await proc.wait()
+        duration = round(time.perf_counter() - t_start, 1)
+
+        # Parse summary from output
+        summary: dict = {}
+        full_output = "\n".join(lines_all)
+        # pytest summary
+        m = re.search(r'(\d+) passed', full_output)
+        if m: summary["passed"] = int(m.group(1))
+        m = re.search(r'(\d+) failed', full_output)
+        if m: summary["failed"] = int(m.group(1))
+        # precision/recall
+        m = re.search(r'precision[=:\s]+([0-9.]+)', full_output, re.I)
+        if m: summary["precision"] = float(m.group(1))
+        m = re.search(r'recall[=:\s]+([0-9.]+)', full_output, re.I)
+        if m: summary["recall"] = float(m.group(1))
+        m = re.search(r'f1[=:\s]+([0-9.]+)', full_output, re.I)
+        if m: summary["f1"] = float(m.group(1))
+        m = re.search(r'drift[=:\s]+([+-]?[0-9.]+)', full_output, re.I)
+        if m: summary["drift"] = float(m.group(1))
+        m = re.search(r'best.*?f1[=:\s]+([0-9.]+)', full_output, re.I)
+        if m: summary["best_f1"] = float(m.group(1))
+
+        # Also pull from result JSON if freshly written
+        for result_file, field_map in [
+            ("benchmarks/results/attack_eval.json", {"overall_precision":"precision","overall_recall":"recall","overall_f1":"f1","total_samples":"total_samples"}),
+            ("benchmarks/results/red_team.json",    {"drift":"drift","overall_catch_rate_mutation":"catch_rate"}),
+            ("benchmarks/results/threshold_sweep.json", {}),
+        ]:
+            try:
+                rf = REPO / result_file
+                if rf.exists():
+                    rd = json.loads(rf.read_text())
+                    for src, dst in field_map.items():
+                        if src in rd:
+                            summary[dst] = rd[src]
+                    if suite_key == "sweep" and "recommended" in rd and rd["recommended"]:
+                        summary["best_f1"]       = rd["recommended"].get("f1")
+                        summary["best_block"]    = rd["recommended"].get("auto_block")
+                        summary["best_allow"]    = rd["recommended"].get("auto_allow")
+            except Exception:
+                pass
+
+        import datetime
+        run_data = {
+            "id":         run_id,
+            "suite":      suite_key,
+            "label":      label,
+            "ts":         datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "ok":         rc == 0,
+            "duration_s": duration,
+            "rc":         rc,
+            "summary":    summary,
+            "log":        lines_all[-500:],   # keep last 500 lines
+        }
+        (RUNS_DIR / f"{run_id}.json").write_text(json.dumps(run_data, indent=2))
+        yield f"data: {json.dumps({'type':'done','rc':rc,'ok':rc==0,'run_id':run_id,'duration_s':duration,'summary':summary})}\n\n"
+
+    except asyncio.CancelledError:
+        try: proc.kill()
+        except Exception: pass
+        yield f"data: {json.dumps({'type':'done','rc':-1,'ok':False,'run_id':run_id,'msg':'Cancelled'})}\n\n"
+
+@app.get("/api/run/{suite}")
+async def run_suite_stream(suite: str):
+    if suite not in TEST_SUITES:
+        return {"error": f"Unknown suite: {suite}"}
+    s = TEST_SUITES[suite]
+    return StreamingResponse(
+        _stream_and_save(suite, s["cmd"], str(REPO), s["label"]),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 async def history_endpoint():
     try:
         import sqlite3
@@ -610,10 +817,17 @@ tr:hover td { background: var(--surface2); color: var(--text); }
   </div>
 
   <div class="nav-section">
-    <div class="nav-label">Config</div>
+    <div class="nav-label">Analysis</div>
     <div class="nav-item" onclick="goTo('benchmarks',this)">
       <span class="icon">⚗️</span> Benchmarks
       <span class="nav-badge">AMD</span>
+    </div>
+    <div class="nav-item" onclick="goTo('testrunner',this)">
+      <span class="icon">▶️</span> Test Runner
+    </div>
+    <div class="nav-item" onclick="goTo('calculator',this)">
+      <span class="icon">💰</span> ROI Calculator
+      <span class="nav-badge">NEW</span>
     </div>
   </div>
 
@@ -1052,9 +1266,264 @@ Example:
 
     </div><!-- page-benchmarks -->
 
+    <!-- ── Test Runner Page ─────────────────────────────────────────────── -->
+    <div id="page-testrunner" class="page">
+
+      <div class="card">
+        <div class="card-title">▶ Test & Benchmark Runner
+          <span style="font-size:11px;color:var(--text3);font-weight:400;">Streams live output · Saves results with timestamp</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:20px;">
+          <div class="suite-btn" data-suite="unit"    onclick="runSuite('unit')">
+            <div class="suite-icon">🧪</div>
+            <div class="suite-label">Unit Tests</div>
+            <div class="suite-desc">115 tests · ~25s</div>
+          </div>
+          <div class="suite-btn" data-suite="normalizer" onclick="runSuite('normalizer')">
+            <div class="suite-icon">🔤</div>
+            <div class="suite-label">Normalizer Tests</div>
+            <div class="suite-desc">17 tests · T0.5 coverage</div>
+          </div>
+          <div class="suite-btn" data-suite="batch"   onclick="runSuite('batch')">
+            <div class="suite-icon">⚡</div>
+            <div class="suite-label">Batch Queue Tests</div>
+            <div class="suite-desc">Routing + orchestrator</div>
+          </div>
+          <div class="suite-btn" data-suite="eval"    onclick="runSuite('eval')">
+            <div class="suite-icon">🎯</div>
+            <div class="suite-label">Attack Eval</div>
+            <div class="suite-desc">210 samples · ~2 min</div>
+          </div>
+          <div class="suite-btn" data-suite="redteam" onclick="runSuite('redteam')">
+            <div class="suite-icon">🔴</div>
+            <div class="suite-label">Red-Team</div>
+            <div class="suite-desc">200 mutations · ~5 min</div>
+          </div>
+          <div class="suite-btn" data-suite="sweep"   onclick="runSuite('sweep')">
+            <div class="suite-icon">🎛</div>
+            <div class="suite-label">Threshold Sweep</div>
+            <div class="suite-desc">Auto-tunes thresholds</div>
+          </div>
+          <div class="suite-btn" data-suite="stress"  onclick="runSuite('stress')">
+            <div class="suite-icon">💪</div>
+            <div class="suite-label">Stress Matrix</div>
+            <div class="suite-desc">AMD W7900 · pre-recorded</div>
+          </div>
+        </div>
+
+        <!-- Live summary cards (shown after run) -->
+        <div id="runSummaryCards" style="display:none;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+          <div class="stat-card" style="flex:1;min-width:120px;">
+            <div class="stat-val" id="rsv-status" style="font-size:22px;">—</div>
+            <div class="stat-label">Status</div>
+          </div>
+          <div class="stat-card" id="rsc-passed" style="flex:1;min-width:120px;display:none;">
+            <div class="stat-val" style="color:var(--green)" id="rsv-passed">—</div>
+            <div class="stat-label">Tests Passed</div>
+          </div>
+          <div class="stat-card" id="rsc-failed" style="flex:1;min-width:120px;display:none;">
+            <div class="stat-val" style="color:var(--red)" id="rsv-failed">—</div>
+            <div class="stat-label">Tests Failed</div>
+          </div>
+          <div class="stat-card" id="rsc-prec" style="flex:1;min-width:120px;display:none;">
+            <div class="stat-val" style="color:var(--green)" id="rsv-prec">—</div>
+            <div class="stat-label">Precision</div>
+          </div>
+          <div class="stat-card" id="rsc-recall" style="flex:1;min-width:120px;display:none;">
+            <div class="stat-val" style="color:var(--yellow)" id="rsv-recall">—</div>
+            <div class="stat-label">Recall</div>
+          </div>
+          <div class="stat-card" id="rsc-drift" style="flex:1;min-width:120px;display:none;">
+            <div class="stat-val" id="rsv-drift">—</div>
+            <div class="stat-label">Red-team Drift</div>
+          </div>
+          <div class="stat-card" style="flex:1;min-width:120px;">
+            <div class="stat-val" style="color:var(--accent)" id="rsv-dur">—</div>
+            <div class="stat-label">Duration</div>
+          </div>
+        </div>
+
+        <!-- Terminal -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+            <span style="font-size:11px;font-family:var(--mono);color:var(--text3);" id="termLabel">No run active</span>
+            <div style="margin-left:auto;display:flex;gap:8px;">
+              <button class="btn btn-ghost" style="padding:3px 10px;font-size:11px;" onclick="clearTerminal()">Clear</button>
+              <button class="btn btn-danger"  style="padding:3px 10px;font-size:11px;display:none;" id="stopBtn" onclick="stopRun()">■ Stop</button>
+            </div>
+          </div>
+          <div id="terminal" style="height:380px;overflow-y:auto;padding:12px 14px;font-family:var(--mono);font-size:12px;line-height:1.6;"></div>
+        </div>
+      </div>
+
+      <!-- Run History -->
+      <div class="card">
+        <div class="card-title">📂 Run History
+          <button class="btn btn-ghost" style="margin-left:auto;padding:4px 10px;font-size:11px;" onclick="loadRunHistory()">↻ Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Timestamp</th><th>Suite</th><th>Status</th>
+              <th>Duration</th><th>Precision</th><th>Recall</th><th>Drift</th><th>Tests</th><th></th>
+            </tr></thead>
+            <tbody id="runHistoryBody">
+              <tr><td colspan="9" style="color:var(--text3);text-align:center;padding:24px;">No runs saved yet. Run a suite above.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- page-testrunner -->
+
+    <!-- ── ROI Calculator Page ───────────────────────────────────────────── -->
+    <div id="page-calculator" class="page">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+
+        <!-- Left: Inputs -->
+        <div class="card">
+          <div class="card-title">⚙️ Your Configuration</div>
+
+          <div class="field">
+            <div class="label-row"><span class="label">REQUESTS PER HOUR</span>
+              <div class="info-btn">i<div class="tooltip">Total LLM API calls per hour across your application. Each one is a potential attack vector without Warden.</div></div>
+            </div>
+            <input type="range" id="sl-rph" min="100" max="50000" value="5000" step="100" oninput="calcUpdate()" style="width:100%;accent-color:var(--accent);">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-top:4px;">
+              <span>100</span><span id="lbl-rph" style="color:var(--text);font-weight:600;">5,000 req/hr</span><span>50k</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="label-row"><span class="label">GPU TDP (BASELINE, WATTS)</span>
+              <div class="info-btn">i<div class="tooltip">Power draw of your LLM inference GPU at full load. Without Warden, every request drives this 100%. AMD W7900 = 295W, A100 = 400W, H100 = 700W.</div></div>
+            </div>
+            <input type="range" id="sl-tdp" min="100" max="800" value="295" step="5" oninput="calcUpdate()" style="width:100%;accent-color:var(--accent);">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-top:4px;">
+              <span>100W</span><span id="lbl-tdp" style="color:var(--text);font-weight:600;">295W</span><span>800W</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="label-row"><span class="label">GPU HOURLY COST (USD)</span>
+              <div class="info-btn">i<div class="tooltip">Cloud GPU instance cost. AMD MI300X ≈ $3.50/hr, A100 ≈ $2.50/hr, H100 ≈ $4/hr on typical cloud providers.</div></div>
+            </div>
+            <input type="range" id="sl-gpu" min="0.5" max="10" value="3.5" step="0.1" oninput="calcUpdate()" style="width:100%;accent-color:var(--accent);">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-top:4px;">
+              <span>$0.50</span><span id="lbl-gpu" style="color:var(--text);font-weight:600;">$3.50/hr</span><span>$10</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="label-row"><span class="label">ELECTRICITY ($/kWh)</span></div>
+            <input type="range" id="sl-kwh" min="0.05" max="0.40" value="0.12" step="0.01" oninput="calcUpdate()" style="width:100%;accent-color:var(--accent);">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-top:4px;">
+              <span>$0.05</span><span id="lbl-kwh" style="color:var(--text);font-weight:600;">$0.12/kWh</span><span>$0.40</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="label-row"><span class="label">WARDEN TIER DISTRIBUTION (from your eval)</span>
+              <div class="info-btn">i<div class="tooltip">Based on actual attack corpus: T0 catches 12.8% at near-zero cost, T1 catches another ~80% of escalated traffic, T2 sees only the hardest cases.</div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;">
+              <div>T0 catch rate: <span id="lbl-t0r" style="color:var(--yellow);font-family:var(--mono);">12.8%</span></div>
+              <div>T1 catch rate: <span id="lbl-t1r" style="color:var(--green);font-family:var(--mono);">80%</span></div>
+              <input type="range" id="sl-t0" min="0" max="50" value="13" step="1" oninput="calcUpdate()" style="accent-color:var(--yellow);">
+              <input type="range" id="sl-t1" min="0" max="100" value="80" step="1" oninput="calcUpdate()" style="accent-color:var(--green);">
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Results -->
+        <div>
+          <!-- Comparison Header -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+            <div class="card" style="background:var(--red-bg);border-color:var(--red-bd);margin:0;">
+              <div style="font-size:11px;font-weight:700;color:var(--red);letter-spacing:0.05em;margin-bottom:10px;">✕ WITHOUT WARDEN</div>
+              <div class="stat-val" style="color:var(--red);font-size:22px;" id="cmp-noW-power">—W</div>
+              <div class="stat-label">Avg GPU Power Draw</div>
+              <div style="margin-top:12px;font-size:12px;color:var(--text2);" id="cmp-noW-cost">—</div>
+              <div style="font-size:12px;color:var(--text2);" id="cmp-noW-lat">Latency: ~1200ms/req</div>
+              <div style="font-size:12px;color:var(--red);margin-top:8px;" id="cmp-noW-attacks">0 attacks blocked</div>
+            </div>
+            <div class="card" style="background:var(--green-bg);border-color:var(--green-bd);margin:0;">
+              <div style="font-size:11px;font-weight:700;color:var(--green);letter-spacing:0.05em;margin-bottom:10px;">✓ WITH WARDEN</div>
+              <div class="stat-val" style="color:var(--green);font-size:22px;" id="cmp-W-power">—W</div>
+              <div class="stat-label">Avg GPU Power Draw</div>
+              <div style="font-size:12px;color:var(--text2);" id="cmp-W-cost">—</div>
+              <div style="font-size:12px;color:var(--text2);" id="cmp-W-lat">—</div>
+              <div style="font-size:12px;color:var(--green);margin-top:8px;" id="cmp-W-attacks">—</div>
+            </div>
+          </div>
+
+          <!-- Savings cards -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="stat-card" style="background:var(--accent-bg);border-color:rgba(99,102,241,0.25);">
+              <div class="stat-val" style="color:var(--accent)" id="sv-power">—</div>
+              <div class="stat-label">Power Saved / hr</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val" style="color:var(--green)" id="sv-cost-day">—</div>
+              <div class="stat-label">GPU Cost Saved / day</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val" style="color:var(--yellow)" id="sv-cost-mo">—</div>
+              <div class="stat-label">Estimated Savings / mo</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-val" style="color:var(--green)" id="sv-lat">—</div>
+              <div class="stat-label">Avg Latency Reduction</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Per-Tier Breakdown table -->
+      <div class="card">
+        <div class="card-title">📊 Per-Tier Breakdown — With vs Without Warden</div>
+        <div class="table-wrap">
+          <table id="breakdownTable">
+            <thead><tr>
+              <th>Tier</th>
+              <th>Description</th>
+              <th>% Traffic Handled</th>
+              <th>Avg Latency</th>
+              <th>Power Draw</th>
+              <th>Without Warden Equivalent</th>
+              <th>Savings per 1k Requests</th>
+            </tr></thead>
+            <tbody id="breakdownBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Annual ROI card -->
+      <div class="card" style="background:linear-gradient(135deg,rgba(99,102,241,0.08),rgba(34,197,94,0.05));border-color:rgba(99,102,241,0.25);">
+        <div class="card-title" style="color:var(--accent);">💡 Annual ROI Summary</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+          <div>
+            <div style="font-size:28px;font-weight:700;font-family:var(--mono);color:var(--green);" id="roi-annual-save">—</div>
+            <div style="font-size:12px;color:var(--text3);">Annual GPU cost savings</div>
+          </div>
+          <div>
+            <div style="font-size:28px;font-weight:700;font-family:var(--mono);color:var(--accent);" id="roi-annual-kwh">—</div>
+            <div style="font-size:12px;color:var(--text3);">kWh saved per year</div>
+          </div>
+          <div>
+            <div style="font-size:28px;font-weight:700;font-family:var(--mono);color:var(--yellow);" id="roi-precision">100%</div>
+            <div style="font-size:12px;color:var(--text3);">Precision (zero false positives)</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- page-calculator -->
+
   </div><!-- .content -->
 </div><!-- .main -->
 </div><!-- .layout -->
+
 
 <script>
 /* ── Examples ──────────────────────────────────────────────────────────── */
@@ -1084,8 +1553,10 @@ const PAGE_META = {
   diffguard:  { title: 'DiffGuard',    sub: 'Scan git diffs and code for vulnerabilities before merge' },
   history:    { title: 'Audit Log',    sub: 'Immutable record of every security decision' },
   stats:      { title: 'Live Stats',   sub: 'Session routing statistics and power efficiency' },
-  benchmarks: { title: 'Benchmarks',   sub: 'Real AMD W7900 results — 210 samples, red-team, stress matrix, telemetry' },
-  settings:   { title: 'Settings',     sub: 'Routing thresholds, modes, and system status' },
+  benchmarks:  { title: 'Benchmarks',   sub: 'Real AMD W7900 results — 210 samples, red-team, stress matrix, telemetry' },
+  testrunner:  { title: 'Test Runner',   sub: 'Run any test suite live · streams output · saves results with timestamp' },
+  calculator:  { title: 'ROI Calculator', sub: 'With vs Without Warden — power, cost, latency, attack savings' },
+  settings:    { title: 'Settings',     sub: 'Routing thresholds, modes, and system status' },
 };
 
 function goTo(page, el) {
@@ -1099,6 +1570,8 @@ function goTo(page, el) {
   if (page === 'history')    loadHistory();
   if (page === 'stats')      refreshStats();
   if (page === 'benchmarks') loadBenchmarks();
+  if (page === 'testrunner') loadRunHistory();
+  if (page === 'calculator') { calcUpdate(); }
 }
 
 /* ── Guard Scan ────────────────────────────────────────────────────────── */
@@ -1459,7 +1932,302 @@ async function loadSweep() {
     }).join('');
   } catch(e) {}
 }
+
+/* ── Suite Button Styling (injected via JS since CSS block is above) ────── */
+const _suiteCss = `
+.suite-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.suite-btn:hover { border-color: var(--accent); background: var(--accent-bg); }
+.suite-btn.running { border-color: var(--yellow); background: var(--yellow-bg); }
+.suite-btn.done-ok  { border-color: var(--green);  background: var(--green-bg); }
+.suite-btn.done-err { border-color: var(--red);    background: var(--red-bg); }
+.suite-icon  { font-size: 22px; margin-bottom: 6px; }
+.suite-label { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+.suite-desc  { font-size: 11px; color: var(--text3); }
+`;
+const _styleEl = document.createElement('style');
+_styleEl.textContent = _suiteCss;
+document.head.appendChild(_styleEl);
+
+/* ── Test Runner ─────────────────────────────────────────────────────────── */
+let _activeES = null;
+
+function stopRun() {
+  if (_activeES) { _activeES.close(); _activeES = null; }
+  document.getElementById('stopBtn').style.display = 'none';
+  document.getElementById('termLabel').textContent = 'Stopped.';
+}
+
+function clearTerminal() {
+  document.getElementById('terminal').innerHTML = '';
+  document.getElementById('termLabel').textContent = 'No run active';
+}
+
+function appendTermLine(line, type) {
+  const el = document.getElementById('terminal');
+  const colors = { ok:'#22c55e', err:'#ef4444', warn:'#eab308', info:'#a1a1aa' };
+  const span = document.createElement('div');
+  span.style.color = colors[type] || colors.info;
+  span.textContent = line;
+  el.appendChild(span);
+  el.scrollTop = el.scrollHeight;
+}
+
+function runSuite(suiteKey) {
+  if (_activeES) { _activeES.close(); }
+  // Reset all suite buttons
+  document.querySelectorAll('.suite-btn').forEach(b => {
+    b.classList.remove('running','done-ok','done-err');
+  });
+  const btn = document.querySelector(`[data-suite="${suiteKey}"]`);
+  if (btn) btn.classList.add('running');
+
+  // Clear terminal
+  document.getElementById('terminal').innerHTML = '';
+  document.getElementById('termLabel').textContent = `Running: ${suiteKey}…`;
+  document.getElementById('stopBtn').style.display = 'inline-flex';
+  document.getElementById('runSummaryCards').style.display = 'none';
+
+  _activeES = new EventSource(`/api/run/${suiteKey}`);
+  _activeES.onmessage = (evt) => {
+    try {
+      const d = JSON.parse(evt.data);
+      if (d.type === 'start') {
+        appendTermLine(`▶ Started (PID ${d.pid})  run_id: ${d.run_id}`, 'info');
+      } else if (d.type === 'done') {
+        _activeES.close(); _activeES = null;
+        document.getElementById('stopBtn').style.display = 'none';
+        const ok = d.ok;
+        if (btn) btn.classList.remove('running');
+        if (btn) btn.classList.add(ok ? 'done-ok' : 'done-err');
+        document.getElementById('termLabel').textContent =
+          (ok ? '✓ Completed' : '✕ Failed') + `  ${d.duration_s}s  (${d.run_id})`;
+        appendTermLine(`\n${'─'.repeat(60)}`, 'info');
+        appendTermLine(`${ok?'✓ PASSED':'✕ FAILED'}  in ${d.duration_s}s`, ok?'ok':'err');
+        showRunSummary(d.summary || {}, ok, d.duration_s);
+        loadRunHistory();
+      } else {
+        appendTermLine(d.line || '', d.type || 'info');
+      }
+    } catch(e) {}
+  };
+  _activeES.onerror = () => {
+    if (_activeES) { _activeES.close(); _activeES = null; }
+    document.getElementById('stopBtn').style.display = 'none';
+    appendTermLine('⚠ Connection error.', 'err');
+  };
+}
+
+function showRunSummary(summary, ok, dur) {
+  const cards = document.getElementById('runSummaryCards');
+  cards.style.display = 'flex';
+  document.getElementById('rsv-status').textContent = ok ? '✓' : '✕';
+  document.getElementById('rsv-status').style.color = ok ? 'var(--green)' : 'var(--red)';
+  document.getElementById('rsv-dur').textContent = dur + 's';
+
+  const show = (id, val, fmt) => {
+    const card = document.getElementById('rsc-' + id);
+    const el   = document.getElementById('rsv-' + id);
+    if (val !== undefined && val !== null) {
+      card.style.display = 'block';
+      el.textContent = fmt(val);
+    } else { card.style.display = 'none'; }
+  };
+  show('passed', summary.passed, v => v);
+  show('failed', summary.failed, v => v);
+  show('prec',   summary.precision, v => (v*100).toFixed(1)+'%');
+  show('recall', summary.recall,    v => (v*100).toFixed(1)+'%');
+  show('drift',  summary.drift,     v => (v>0?'+':'')+(v*100).toFixed(1)+'%');
+}
+
+/* ── Run History ─────────────────────────────────────────────────────────── */
+async function loadRunHistory() {
+  try {
+    const r = await fetch('/api/runs');
+    const d = await r.json();
+    const tbody = document.getElementById('runHistoryBody');
+    if (!d.runs || d.runs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="color:var(--text3);text-align:center;padding:24px;">No runs saved yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.runs.map(run => {
+      const ts = (run.ts||'').replace('T',' ').replace(/\.\d+Z?$/,'').slice(0,19);
+      const ok = run.ok;
+      const s  = run.summary || {};
+      const prec = s.precision != null ? (s.precision*100).toFixed(0)+'%' : '—';
+      const rec  = s.recall    != null ? (s.recall*100).toFixed(1)+'%'    : '—';
+      const drift = s.drift    != null ? (s.drift>0?'+':'')+(s.drift*100).toFixed(1)+'%' : '—';
+      const tests = s.passed   != null ? `${s.passed}✓${s.failed?` ${s.failed}✕`:''}` : '—';
+      return `<tr>
+        <td class="td-ts">${ts}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${run.suite}</td>
+        <td style="font-weight:600;color:${ok?'var(--green)':'var(--red)'}">${ok?'✓ OK':'✕ FAIL'}</td>
+        <td style="font-family:var(--mono)">${run.duration_s != null ? run.duration_s+'s' : '—'}</td>
+        <td style="color:var(--green)">${prec}</td>
+        <td style="color:var(--yellow)">${rec}</td>
+        <td style="color:${drift.startsWith('-')?'var(--green)':'var(--red)'}">${drift}</td>
+        <td style="font-family:var(--mono)">${tests}</td>
+        <td>
+          <button class="btn btn-ghost" style="padding:2px 8px;font-size:10px;" onclick="viewRunLog('${run.id}')">Log</button>
+          <button class="btn btn-danger" style="padding:2px 8px;font-size:10px;" onclick="deleteRun('${run.id}')">✕</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch(e) {}
+}
+
+async function viewRunLog(runId) {
+  try {
+    const r = await fetch(`/api/runs/${runId}`);
+    const d = await r.json();
+    document.getElementById('terminal').innerHTML = '';
+    document.getElementById('termLabel').textContent = `Log: ${runId}`;
+    (d.log || []).forEach(line => {
+      const ll = line.toLowerCase();
+      const type = ll.includes('pass') || ll.includes('ok') ? 'ok'
+                 : ll.includes('fail') || ll.includes('error') ? 'err'
+                 : ll.includes('warn') ? 'warn' : 'info';
+      appendTermLine(line, type);
+    });
+  } catch(e) {}
+}
+
+async function deleteRun(runId) {
+  await fetch(`/api/runs/${runId}`, {method:'DELETE'});
+  loadRunHistory();
+}
+
+/* ── ROI Calculator ──────────────────────────────────────────────────────── */
+// Tier constants (from real measurements)
+const TIER_DATA = [
+  { key:'mem',    label:'Memory Cache', lat_ms:0.1,  power_w:0.5,  desc:'Hash-matched previous decisions' },
+  { key:'t0',     label:'T0 Regex',     lat_ms:0.4,  power_w:0.5,  desc:'Deterministic regex/pattern rules' },
+  { key:'t0_5',   label:'T0.5 Norm',    lat_ms:0.2,  power_w:0.5,  desc:'Unicode normalizer (homoglyphs, base64)' },
+  { key:'t1',     label:'T1 NLP',       lat_ms:210,  power_w:5,    desc:'DeBERTa-v3 classifier (CPU/GPU)' },
+  { key:'t2',     label:'T2 LLM',       lat_ms:1200, power_w:280,  desc:'Qwen2.5-Coder-7B (full GPU)' },
+];
+
+function calcUpdate() {
+  const rph   = parseFloat(document.getElementById('sl-rph').value);
+  const tdp   = parseFloat(document.getElementById('sl-tdp').value);
+  const gpuhr = parseFloat(document.getElementById('sl-gpu').value);
+  const kwh   = parseFloat(document.getElementById('sl-kwh').value);
+  const t0pct = parseFloat(document.getElementById('sl-t0').value) / 100;
+  const t1pct = parseFloat(document.getElementById('sl-t1').value) / 100;
+
+  // Update slider labels
+  document.getElementById('lbl-rph').textContent = rph.toLocaleString() + ' req/hr';
+  document.getElementById('lbl-tdp').textContent = tdp + 'W';
+  document.getElementById('lbl-gpu').textContent = '$' + gpuhr.toFixed(2) + '/hr';
+  document.getElementById('lbl-kwh').textContent = '$' + kwh.toFixed(2) + '/kWh';
+  document.getElementById('lbl-t0r').textContent = (t0pct*100).toFixed(0) + '%';
+  document.getElementById('lbl-t1r').textContent = (t1pct*100).toFixed(0) + '%';
+
+  // Tier traffic split (how much each tier sees)
+  // T0 handles t0pct of all requests
+  // T1 handles t1pct of what T0 doesn't catch
+  // T2 handles the rest
+  const t0_traffic  = t0pct;
+  const t1_traffic  = (1 - t0pct) * t1pct;
+  const t2_traffic  = 1 - t0_traffic - t1_traffic;
+  const mem_traffic = Math.min(t0_traffic * 0.3, 0.15); // ~15% memory hit rate
+
+  // WITHOUT Warden: every request hits LLM at full TDP
+  const noW_power_w = tdp; // full TDP always
+  const noW_lat_ms  = 1200;
+  const noW_cost_hr = gpuhr; // GPU running 100%
+
+  // WITH Warden: weighted average
+  const W_power_w = (
+    mem_traffic * 0.5 +
+    t0_traffic  * 0.5 +
+    t1_traffic  * 5   +
+    t2_traffic  * tdp
+  );
+  // weighted avg latency (ms)
+  const W_lat_ms = (
+    mem_traffic * 0.1  +
+    t0_traffic  * 0.4  +
+    t1_traffic  * 210  +
+    t2_traffic  * 1200
+  ) / (mem_traffic + t0_traffic + t1_traffic + t2_traffic || 1);
+
+  // GPU only runs at full power for T2 fraction of time
+  const W_cost_hr = gpuhr * t2_traffic + 0.05; // fixed overhead
+
+  // Deltas
+  const power_saved_w  = noW_power_w - W_power_w;
+  const cost_saved_hr  = noW_cost_hr - W_cost_hr;
+  const cost_saved_day = cost_saved_hr * 24;
+  const cost_saved_mo  = cost_saved_day * 30;
+  const cost_saved_yr  = cost_saved_day * 365;
+  const kwh_saved_hr   = power_saved_w / 1000;
+  const kwh_saved_yr   = kwh_saved_hr * 24 * 365;
+  const lat_saved_pct  = Math.round((1 - W_lat_ms / noW_lat_ms) * 100);
+  const attacks_blocked_hr = Math.round(rph * (1 - t2_traffic));
+
+  // Update comparison cards
+  document.getElementById('cmp-noW-power').textContent = tdp + 'W';
+  document.getElementById('cmp-noW-cost').textContent  = '$' + noW_cost_hr.toFixed(2) + '/hr GPU';
+  document.getElementById('cmp-noW-lat').textContent   = 'Latency: ' + noW_lat_ms + 'ms/req';
+  document.getElementById('cmp-noW-attacks').textContent = '0 attacks blocked';
+
+  document.getElementById('cmp-W-power').textContent   = W_power_w.toFixed(1) + 'W';
+  document.getElementById('cmp-W-cost').textContent    = '$' + W_cost_hr.toFixed(2) + '/hr GPU';
+  document.getElementById('cmp-W-lat').textContent     = 'Latency: ' + W_lat_ms.toFixed(0) + 'ms avg';
+  document.getElementById('cmp-W-attacks').textContent = attacks_blocked_hr.toLocaleString() + ' attacks stopped/hr';
+
+  // Savings
+  document.getElementById('sv-power').textContent    = power_saved_w.toFixed(0) + 'W';
+  document.getElementById('sv-cost-day').textContent = '$' + cost_saved_day.toFixed(2);
+  document.getElementById('sv-cost-mo').textContent  = '$' + cost_saved_mo.toFixed(0);
+  document.getElementById('sv-lat').textContent      = lat_saved_pct + '%';
+
+  // Annual
+  const fmt = n => n >= 1000 ? '$' + (n/1000).toFixed(1) + 'k' : '$' + n.toFixed(0);
+  document.getElementById('roi-annual-save').textContent = fmt(cost_saved_yr);
+  document.getElementById('roi-annual-kwh').textContent  = Math.round(kwh_saved_yr).toLocaleString() + ' kWh';
+
+  // Per-tier breakdown table
+  const tiers = [
+    { label:'Memory Cache', traffic: mem_traffic, lat: 0.1,  power: 0.5,  desc: 'Hash-match shortcut' },
+    { label:'T0 — Regex',   traffic: t0_traffic,  lat: 0.4,  power: 0.5,  desc: 'Deterministic rules, zero GPU' },
+    { label:'T0.5 — Norm',  traffic: t0_traffic,  lat: 0.2,  power: 0.5,  desc: 'Unicode normalizer pass-through' },
+    { label:'T1 — NLP',     traffic: t1_traffic,  lat: 210,  power: 5,    desc: 'DeBERTa classifier on CPU' },
+    { label:'T2 — LLM',     traffic: t2_traffic,  lat: 1200, power: tdp,  desc: 'Full LLM inference' },
+    { label:'Baseline',     traffic: 1.0,         lat: 1200, power: tdp,  desc: '(Without Warden — all traffic)' },
+  ];
+  document.getElementById('breakdownBody').innerHTML = tiers.map((t, i) => {
+    const isBaseline = i === tiers.length - 1;
+    const savPerK = isBaseline ? '—' : (() => {
+      const wW  = (t.traffic * t.power * 1000 / rph);
+      const noW = (1.0 * tdp * 1000 / rph);
+      const delta = (noW - wW) * kwh / 1000;
+      return '$' + delta.toFixed(3) + ' energy';
+    })();
+    return `<tr style="${isBaseline?'border-top:2px solid var(--border);':''}">
+      <td style="font-family:var(--mono);font-size:11px;color:${isBaseline?'var(--red)':'var(--text)'}">${t.label}</td>
+      <td style="color:var(--text3);font-size:12px">${t.desc}</td>
+      <td style="font-family:var(--mono)">${(t.traffic*100).toFixed(1)}%</td>
+      <td style="font-family:var(--mono)">${t.lat >= 1000 ? (t.lat/1000).toFixed(1)+'s' : t.lat+'ms'}</td>
+      <td style="font-family:var(--mono);color:${t.power >= tdp*0.5 ? 'var(--red)' : 'var(--green)'}">${t.power}W</td>
+      <td style="font-family:var(--mono);color:var(--red)">${tdp}W @ 1200ms</td>
+      <td style="font-family:var(--mono);color:var(--green)">${savPerK}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Init calculator on load
+calcUpdate();
 </script>
+
 </body>
 </html>"""
 
