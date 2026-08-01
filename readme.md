@@ -80,7 +80,7 @@ User Request
 | LLM02 — Insecure Output Handling | Tier 1 | Partial |
 | LLM03 — Training Data Poisoning | Tier 2 (DiffGuard) | 13.33% |
 | LLM04 — Model Denial of Service | Tier 0 (rate rules) | Partial |
-| LLM05 — Supply Chain | Tier 2 (CI/CD scan) | In progress |
+| LLM05 — Supply Chain | Tier 2 (DiffGuard + Model Lock) | **Active Guard** |
 | LLM06 — Sensitive Info Disclosure | Tier 0 + Tier 1 | Partial |
 | LLM07 — Insecure Plugin Design | Tier 2 | Partial |
 | LLM08 — Excessive Agency | Tier 1 | Partial |
@@ -118,18 +118,26 @@ User Request
 
 ---
 
+## Submission & Demo Documentation
+
+- 🏆 **[Devpost Submission Draft](devpost_submission.md)** — Full writeup covering inspiration, architecture, ROCm optimizations, honest challenges, and future roadmap.
+- 🎬 **[Demo Video Script](scripts/DEMO_SCRIPT.md)** — Includes the ⚡ **2-Minute Winning Script** for video recording, exact copy-paste attack payloads, and step-by-step frontend setup.
+- 📊 **[16-Slide Presentation Deck](presentation/warden.pptx)** — Complete pitch deck with real benchmark charts, TP/FN breakdown, and mutator evasion analysis.
+
+---
+
 ## Red Team Evasion Results (200 Mutations, 8 Attack Mutators)
 
 | Mutator | Catch Rate |
 |---------|-----------|
-| `base64_decode_exec` | **61.3%** |
-| `paraphrase_scaffold` | 33.3% |
-| `zero_width_split` | 23.5% |
-| `homoglyph_swap` | 14.3% |
-| `spongebob_case` | 13.8% |
-| `whitespace_mangle` | 12.0% |
-| `payload_swap` | 10.0% |
-| `tag_injection` | 4.0% |
+| `base64_decode_exec` | **73.7%** |
+| `paraphrase_scaffold` | **33.3%** |
+| `zero_width_split` | **28.6%** |
+| `homoglyph_swap` | **23.5%** |
+| `spongebob_case` | **21.4%** |
+| `whitespace_mangle` | **10.0%** |
+| `tag_injection` | **7.1%** |
+| `payload_swap` | **0.0%** |
 
 ---
 
@@ -141,7 +149,7 @@ git clone https://github.com/AmanTShekar/warden.git
 cd warden
 pip install -r requirements.txt
 
-# Launch the Web UI
+# Launch the Web UI (Includes Live Results Dashboard & Test Runner)
 py -m ui.web_app
 
 # Open browser: http://localhost:8080
@@ -158,24 +166,23 @@ bash scripts/demo_final.sh
 
 ```
 warden/
-├── warden/          # Core routing engine
-│   ├── tiers/       # Tier 0–3 implementations
-│   ├── guards/      # DiffGuard code scanner
+├── warden/              # Core routing engine
+│   ├── tiers/           # Tier 0–3 implementations (Normalizer, Regex, DeBERTa, CaMeL)
+│   ├── guards/          # DiffGuard code scanner & Policy Engine
 │   └── orchestrator.py
-├── ui/              # FastAPI web interface
-├── benchmarks/      # Evaluation harness + real results
-│   └── results/     # attack_eval.json, red_team.json, telemetry.csv
-├── data/            # OWASP LLM Top 10 dataset
-├── attack_samples_v2/  # 210-sample test corpus
-├── scripts/         # demo_final.sh enterprise eval script
-└── assets/          # Architecture diagrams
+├── ui/                  # FastAPI web interface with 11 Nav Tabs & Results Dashboard
+├── benchmarks/          # Evaluation harness + real results
+│   └── results/         # attack_eval.json, red_team.json, telemetry.csv, attack_llm_comparison_results.json
+├── enterprise_presentation/ # 16-slide PPTX pitch deck
+├── scripts/             # DEMO_SCRIPT.md, demo_final.sh, generate_pptx.py
+└── devpost_submission.md # Devpost writeup
 ```
 
 ---
 
 ## Honest Limitations
 
-- **Recall is low (12–22%)** on the current model. Warden is architected correctly, but the NLP models need fine-tuning on adversarial LLM-specific data to improve detection rates.
+- **Recall is low (12.8% baseline)** on the un-finetuned classifier. Warden is architected correctly, but the NLP models need fine-tuning on adversarial LLM-specific data to improve detection rates.
 - **OOM at concurrency=64.** The W7900's 48GB VRAM is fully saturated at 64 concurrent Qwen-7B contexts.
 - **DiffGuard requires Semgrep** on the host system. A regex fallback exists for CI environments without Semgrep installed.
 
