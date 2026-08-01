@@ -633,6 +633,228 @@ txt(s, "Architecture beats brute force. Route smarter, not harder.   ·   MIT Li
     0.5, 6.8, 12.3, 0.45, size=14, bold=True, color=BLACK, align=PP_ALIGN.CENTER)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# SLIDE 11 — ATTACK FAMILY DETECTION BREAKDOWN (Exact Real Data)
+# ═══════════════════════════════════════════════════════════════════════════════
+s = add_slide(); bg(s)
+
+# Left green accent bar
+box(s, 0, 0, 0.08, 7.5, fill_color=GREEN)
+
+# Title
+txt(s, "Attack Family Detection Breakdown", 0.4, 0.18, 12.5, 0.55, size=30, bold=True, color=WHITE)
+txt(s, "210 samples  ·  12 attack families + 1 benign control  ·  Precision = 100%  ·  Zero False Positives",
+    0.4, 0.78, 12.5, 0.3, size=9.5, color=DIM)
+accent_line(s, 0.4, 1.08, 12.5, GREEN)
+
+# Column headers
+box(s, 0.4, 1.14, 12.5, 0.35, fill_color=RGBColor(0x16, 0x17, 0x22))
+txt(s, "ATTACK FAMILY",     0.5,  1.18, 3.1, 0.28, size=8.5, bold=True, color=DIM)
+txt(s, "RECALL %",          3.62, 1.18, 0.8, 0.28, size=8.5, bold=True, color=DIM)
+txt(s, "DETECTION BAR  (max = 26.7%)",
+                            4.55, 1.18, 5.2, 0.28, size=8.5, bold=True, color=DIM)
+txt(s, "TP",                9.82, 1.18, 0.4, 0.28, size=8.5, bold=True, color=DIM, align=PP_ALIGN.CENTER)
+txt(s, "FN",               10.22, 1.18, 0.4, 0.28, size=8.5, bold=True, color=DIM, align=PP_ALIGN.CENTER)
+txt(s, "F1",               10.72, 1.18, 0.5, 0.28, size=8.5, bold=True, color=DIM, align=PP_ALIGN.CENTER)
+txt(s, "AVG ms",           11.28, 1.18, 0.9, 0.28, size=8.5, bold=True, color=DIM, align=PP_ALIGN.RIGHT)
+txt(s, "TIER",             12.22, 1.18, 0.6, 0.28, size=8.5, bold=True, color=DIM, align=PP_ALIGN.CENTER)
+
+# EXACT real data from attack_eval.json
+# (family, recall, tp, fn, f1, avg_ms, tier_label)
+FAMILIES_EXACT = [
+    ("01  Direct Injection",       0.2667, 4,  11, 0.4211, 60.81, "T0+T1"),
+    ("02  Jailbreak DAN",          0.2667, 4,  11, 0.4211, 7.90,  "T1"),
+    ("03  Role Playing",           0.0000, 0,  15, 0.0000, 16.26, "T1"),
+    ("04  Encoding Obfuscation",   0.2000, 3,  12, 0.3333, 0.20,  "T0.5"),
+    ("05  Multi-Turn Adversarial", 0.0000, 0,  15, 0.0000, 0.11,  "T1"),
+    ("06  Tool Call Injection",    0.2000, 3,  12, 0.3333, 0.09,  "T0"),
+    ("07  Payload In Data",        0.2000, 3,  12, 0.3333, 0.16,  "T1"),
+    ("08  Secret Extraction",      0.0000, 0,  15, 0.0000, 0.08,  "T1"),
+    ("09  Credential Leak",        0.0000, 0,  15, 0.0000, 0.10,  "T1"),
+    ("10  Code Injection",         0.2667, 4,  11, 0.4211, 16.21, "T0+T1"),
+    ("11  Resource Exhaustion",    0.0000, 0,  15, 0.0000, 0.10,  "T1"),
+    ("12  Data Poisoning (RAG)",   0.1333, 2,  13, 0.2353, 0.11,  "T1"),
+    ("13  Benign Control ✓",       1.0000, 30,  0, 0.0000, 0.07,  "TN"),
+]
+
+BAR_MAX_W = 5.5   # width at 100% recall (we scale relative to best = 26.7%)
+BAR_START = 4.55
+MAX_RECALL = 0.2667
+
+row_top = 1.49
+row_h   = 0.385
+
+for i, (name, recall, tp, fn, f1, avg_ms, tier) in enumerate(FAMILIES_EXACT):
+    top = row_top + i * row_h
+    row_bg = SURFACE if i % 2 == 0 else RGBColor(0x12, 0x13, 0x1B)
+    box(s, 0.4, top, 12.5, row_h - 0.01, fill_color=row_bg)
+
+    # Family name
+    is_benign = "Benign" in name
+    name_color = GREEN if is_benign else WHITE
+    txt(s, name, 0.48, top + 0.07, 3.1, 0.25, size=9, bold=is_benign, color=name_color)
+
+    # Recall % number (left of bar)
+    pct_str = f"{recall*100:.1f}%"
+    if is_benign:
+        bar_color = GREEN
+    elif recall >= 0.25:
+        bar_color = GREEN
+    elif recall > 0:
+        bar_color = AMBER
+    else:
+        bar_color = RED
+    txt(s, pct_str, 3.62, top + 0.06, 0.85, 0.28, size=10, bold=True, color=bar_color, align=PP_ALIGN.RIGHT)
+
+    # Bar background (grey track)
+    if not is_benign:
+        box(s, BAR_START, top + 0.10, BAR_MAX_W, row_h - 0.25,
+            fill_color=RGBColor(0x25, 0x26, 0x35), border_color=None, border_width=Pt(0))
+        # Actual bar
+        fill_w = max((recall / max(MAX_RECALL, 0.001)) * BAR_MAX_W, 0) if recall > 0 else 0
+        if fill_w > 0:
+            box(s, BAR_START, top + 0.10, fill_w, row_h - 0.25,
+                fill_color=bar_color, border_color=None, border_width=Pt(0))
+            # Value inside bar if wide enough, otherwise after
+            if fill_w > 0.8:
+                txt(s, pct_str, BAR_START + fill_w - 0.75, top + 0.07, 0.72, 0.28,
+                    size=9, bold=True, color=BLACK, align=PP_ALIGN.RIGHT)
+    else:
+        # Benign = full green bar with TN label
+        box(s, BAR_START, top + 0.10, BAR_MAX_W, row_h - 0.25,
+            fill_color=RGBColor(0x06, 0x46, 0x3A), border_color=None, border_width=Pt(0))
+        txt(s, "30/30 TRUE NEGATIVES — Perfect specificity", BAR_START + 0.1, top + 0.07, 5.2, 0.28,
+            size=8.5, bold=True, color=GREEN)
+
+    # TP / FN / F1 / ms / tier columns
+    if not is_benign:
+        tp_c = GREEN if tp > 0 else RED
+        txt(s, str(tp),           9.82,  top+0.07, 0.4,  0.28, size=9.5, bold=True, color=tp_c, align=PP_ALIGN.CENTER)
+        txt(s, str(fn),          10.22,  top+0.07, 0.4,  0.28, size=9.5, color=RED,  align=PP_ALIGN.CENTER)
+        txt(s, f"{f1:.3f}" if f1>0 else "—",
+                                 10.72,  top+0.07, 0.5,  0.28, size=9,   color=DIM,  align=PP_ALIGN.CENTER)
+        txt(s, f"{avg_ms}ms",   11.28,  top+0.07, 0.9,  0.28, size=9,   color=DIM,  align=PP_ALIGN.RIGHT)
+        tier_color = GREEN if "T0" in tier else BLUE if tier=="T1" else AMBER
+        txt(s, tier,            12.22,  top+0.07, 0.6,  0.28, size=8.5, bold=True, color=tier_color, align=PP_ALIGN.CENTER)
+
+# Bottom legend bar
+box(s, 0.4, 6.54, 12.5, 0.82, fill_color=RGBColor(0x0A, 0x0B, 0x10))
+accent_line(s, 0.4, 6.54, 12.5, GREEN)
+txt(s, "🟢 Recall ≥ 25%  (Detected by Tier 0 regex / Tier 1 DeBERTa)",
+    0.6, 6.6, 5.5, 0.28, size=9, color=GREEN)
+txt(s, "🟡 Recall 1–24%  (Partially caught by classifier confidence)",
+    0.6, 6.88, 5.5, 0.28, size=9, color=AMBER)
+txt(s, "🔴 Recall = 0%  (Missed — fine-tuning target for v2)",
+    6.3, 6.6, 5.5, 0.28, size=9, color=RED)
+txt(s, "✅ Precision = 100% across ALL families — 0 false positives",
+    6.3, 6.88, 6.0, 0.28, size=9, bold=True, color=GREEN)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SLIDE 12 — RED-TEAM MUTATOR EVASION — Exact numbers + Δ Difference column
+# ═══════════════════════════════════════════════════════════════════════════════
+s = add_slide(); bg(s)
+
+# Left amber accent bar
+box(s, 0, 0, 0.08, 7.5, fill_color=AMBER)
+
+txt(s, "Red-Team Evasion — 8 Mutators  ×  100 Mutations", 0.4, 0.18, 12.5, 0.55, size=30, bold=True, color=WHITE)
+txt(s, "Each mutator transforms real attack payloads  ·  We measure how many still get caught after mutation",
+    0.4, 0.78, 12.5, 0.3, size=9.5, color=DIM)
+accent_line(s, 0.4, 1.08, 12.5, AMBER)
+
+# Summary KPIs at top right
+box(s, 9.8, 0.15, 3.4, 0.95, fill_color=SURFACE, border_color=AMBER, border_width=Pt(1.5))
+txt(s, "BASELINE", 9.95, 0.18, 1.5, 0.28, size=9, color=DIM)
+txt(s, "12.78%",   9.95, 0.45, 1.5, 0.45, size=22, bold=True, color=WHITE)
+txt(s, "MUTATED", 11.55, 0.18, 1.5, 0.28, size=9, color=DIM)
+txt(s, "28.00%",  11.55, 0.45, 1.5, 0.45, size=22, bold=True, color=AMBER)
+
+# Column headers
+box(s, 0.4, 1.14, 12.5, 0.38, fill_color=RGBColor(0x16, 0x17, 0x22))
+txt(s, "EVASION MUTATOR",    0.5,  1.18, 2.8, 0.28, size=8.5, bold=True, color=DIM)
+txt(s, "TECHNIQUE",          3.42, 1.18, 2.9, 0.28, size=8.5, bold=True, color=DIM)
+txt(s, "CATCH RATE (sorted descending)", 6.45, 1.18, 4.8, 0.28, size=8.5, bold=True, color=DIM)
+txt(s, "RATE",              11.35, 1.18, 0.75, 0.28, size=8.5, bold=True, color=DIM, align=PP_ALIGN.CENTER)
+txt(s, "vs BASE",           12.1,  1.18, 0.75, 0.28, size=8.5, bold=True, color=DIM, align=PP_ALIGN.CENTER)
+
+# EXACT data from red_team.json — sorted by catch rate descending
+MUTATORS_EXACT = [
+    ("base64_decode_exec",   0.7368, "Base64 encode attack — decoded at runtime"),
+    ("paraphrase_scaffold",  0.3333, "LLM-style rewrite keeping malicious intent"),
+    ("zero_width_split",     0.2857, "Zero-width Unicode chars split tokens"),
+    ("homoglyph_swap",       0.2353, "Lookalike Unicode chars replace ASCII"),
+    ("spongebob_case",       0.2143, "aLtErNaTiNg CaSe confuses tokenizers"),
+    ("whitespace_mangle",    0.1000, "Extra whitespace + tab noise injections"),
+    ("tag_injection",        0.0714, "HTML/XML tags wrapped around payload"),
+    ("payload_swap",         0.0000, "Semantic content swapped — undetectable"),
+]
+
+BASELINE = 0.1278
+M_BAR_START = 6.45
+M_BAR_MAX_W = 4.8
+M_ROW_H  = 0.65
+M_ROW_TOP = 1.52
+
+for i, (name, rate, tech) in enumerate(MUTATORS_EXACT):
+    top = M_ROW_TOP + i * M_ROW_H
+    row_bg = SURFACE if i % 2 == 0 else RGBColor(0x12, 0x13, 0x1B)
+    box(s, 0.4, top, 12.5, M_ROW_H - 0.03, fill_color=row_bg)
+
+    # Mutator name
+    clean_name = name.replace("_", " ").title()
+    txt(s, clean_name, 0.52, top + 0.1, 2.8, 0.3, size=10, bold=True, color=WHITE)
+
+    # Technique desc
+    txt(s, tech, 3.42, top + 0.1, 2.95, 0.28, size=8.5, color=DIM)
+
+    # Bar color logic
+    if rate >= 0.5:
+        bar_color = GREEN
+    elif rate >= 0.2:
+        bar_color = BLUE
+    elif rate > 0:
+        bar_color = AMBER
+    else:
+        bar_color = RED
+
+    # Grey track
+    box(s, M_BAR_START, top + 0.15, M_BAR_MAX_W, M_ROW_H - 0.38,
+        fill_color=RGBColor(0x22, 0x23, 0x30), border_color=None, border_width=Pt(0))
+
+    # Baseline reference line (thin white vertical line)
+    base_x = M_BAR_START + BASELINE * M_BAR_MAX_W
+    box(s, base_x - 0.015, top + 0.10, 0.03, M_ROW_H - 0.25,
+        fill_color=WHITE, border_color=None, border_width=Pt(0))
+
+    # Actual bar fill
+    fill_w = rate * M_BAR_MAX_W
+    if fill_w > 0:
+        box(s, M_BAR_START, top + 0.15, fill_w, M_ROW_H - 0.38,
+            fill_color=bar_color, border_color=None, border_width=Pt(0))
+
+    # Catch rate % — right of bar
+    rate_str = f"{rate*100:.1f}%"
+    delta = rate - BASELINE
+    delta_str = f"+{delta*100:.1f}%" if delta > 0 else f"{delta*100:.1f}%"
+    delta_color = GREEN if delta > 0 else (RED if delta < 0 else DIM)
+
+    txt(s, rate_str,   11.35, top + 0.08, 0.75, 0.35, size=13, bold=True, color=bar_color, align=PP_ALIGN.CENTER)
+    txt(s, delta_str,  12.1,  top + 0.08, 0.75, 0.35, size=11, bold=True, color=delta_color, align=PP_ALIGN.CENTER)
+
+# Bottom summary
+box(s, 0.4, 6.70, 12.5, 0.7, fill_color=RGBColor(0x14, 0x10, 0x04))
+accent_line(s, 0.4, 6.70, 12.5, AMBER)
+txt(s, "│  Baseline: 12.78%  →  Overall mutated catch rate: 28.00%  │  Net drift: −15.22%",
+    0.5, 6.76, 7.5, 0.3, size=11, bold=False, color=AMBER)
+txt(s, "Base64 encoding detected 73.7% — Tier 0.5 normalizer decodes before classifier",
+    0.5, 7.06, 7.5, 0.28, size=9.5, color=DIM)
+txt(s, "│ ─── baseline",
+    M_BAR_START + BASELINE * M_BAR_MAX_W - 0.25, 6.76, 0.9, 0.28, size=8, color=WHITE)
+txt(s, "Biggest gap: payload_swap 0.0%\n→ semantic rewrite evades all tiers",
+    9.2, 6.72, 3.6, 0.6, size=9, color=RED)
+
+
 # ─── Save ────────────────────────────────────────────────────────────────────
 out = "enterprise_presentation/warden.pptx"
 prs.save(out)

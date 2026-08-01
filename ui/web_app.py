@@ -204,6 +204,71 @@ async def bench_sweep():
     if not p.exists(): return {"error": "Run: python scripts/sweep_thresholds.py"}
     return json.loads(p.read_text())
 
+@app.get("/api/results/summary")
+async def results_summary():
+    """Consolidated benchmark results summary from all JSON files."""
+    import json, pathlib
+    base = pathlib.Path("benchmarks/results")
+    out = {}
+
+    # Attack eval
+    p = base / "attack_eval.json"
+    if p.exists():
+        d = json.loads(p.read_text())
+        out["attack_eval"] = {
+            "total_samples": d.get("total_samples", 210),
+            "precision": d.get("overall_precision", 0),
+            "recall": d.get("overall_recall", 0),
+            "f1": d.get("overall_f1", 0),
+            "families": [
+                {"family": f["family"].replace("_", " ").title(),
+                 "precision": f["precision"], "recall": f["recall"],
+                 "f1": f["f1"], "tp": f["true_positives"],
+                 "avg_ms": f["avg_latency_ms"]}
+                for f in d.get("family_metrics", [])
+            ]
+        }
+
+    # Red team
+    p = base / "red_team.json"
+    if p.exists():
+        d = json.loads(p.read_text())
+        out["red_team"] = {
+            "mutations": d.get("mutation_count", 0),
+            "catch_rate_baseline": d.get("overall_catch_rate_baseline", 0),
+            "catch_rate_mutated": d.get("overall_catch_rate_mutation", 0),
+            "drift": d.get("drift", 0),
+            "per_mutator": d.get("per_mutator_catch_rate", {}),
+        }
+
+    # Comparison
+    p = base / "compare_with_without_warden.json"
+    if p.exists():
+        d = json.loads(p.read_text())
+        out["comparison"] = {
+            "without_warden": d.get("without_warden", {}),
+            "with_warden": d.get("with_warden", {}),
+            "savings": d.get("savings", {}),
+        }
+
+    # Attack LLM outputs
+    p = base / "attack_llm_comparison_results.json"
+    if p.exists():
+        d = json.loads(p.read_text())
+        out["attack_outputs"] = {
+            "total": d.get("total_cases_evaluated", 0),
+            "cases": [
+                {"family": c["attack_family"],
+                 "prompt_snippet": c["attack_prompt"][:80],
+                 "fail_output": c["mode_without_warden_FAIL"]["raw_llm_output"][:100],
+                 "warden_decision": c["mode_with_warden_SUCCESS"]["warden_decision"],
+                 "warden_explanation": c["mode_with_warden_SUCCESS"]["explanation"]}
+                for c in d.get("comparison_cases", [])
+            ]
+        }
+
+    return out
+
 # ── Test Runner (SSE streaming) ───────────────────────────────────────────────
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -896,7 +961,10 @@ tr:hover td { background: var(--surface2); color: var(--text); }
     </div>
     <div class="nav-item" onclick="goTo('calculator',this)">
       <span class="icon">💰</span> ROI Calculator
-      <span class="nav-badge">NEW</span>
+    </div>
+    <div class="nav-item" onclick="goTo('results',this)" id="resultsNav">
+      <span class="icon">📈</span> Results Dashboard
+      <span class="nav-badge" style="background:rgba(16,185,129,0.2);color:#10b981;">LIVE</span>
     </div>
   </div>
 
@@ -1686,6 +1754,96 @@ Example:
       </div>
     </div><!-- page-policyrules -->
 
+    <!-- ── Results Dashboard Page ───────────────────────────────────── -->
+    <div id="page-results" class="page">
+
+      <!-- KPI row -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;" id="rd-kpi-row">
+        <div class="card" style="text-align:center;padding:18px 12px;">
+          <div style="font-size:28px;font-weight:700;color:#10b981;" id="rd-precision">—</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Overall Precision</div>
+        </div>
+        <div class="card" style="text-align:center;padding:18px 12px;">
+          <div style="font-size:28px;font-weight:700;color:#6366f1;" id="rd-recall">—</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Overall Recall</div>
+        </div>
+        <div class="card" style="text-align:center;padding:18px 12px;">
+          <div style="font-size:28px;font-weight:700;color:#f59e0b;" id="rd-drift">—</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Red-Team Drift</div>
+        </div>
+        <div class="card" style="text-align:center;padding:18px 12px;">
+          <div style="font-size:28px;font-weight:700;color:#ef4444;" id="rd-power">—</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px;">Power Saved</div>
+        </div>
+      </div>
+
+      <!-- Row 2: Family breakdown + Mutator chart -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+
+        <!-- Family breakdown bar chart -->
+        <div class="card">
+          <div class="card-title">🧬 Attack Family Detection Rate</div>
+          <div id="rd-family-chart" style="display:flex;flex-direction:column;gap:10px;"></div>
+        </div>
+
+        <!-- Mutator catch rates -->
+        <div class="card">
+          <div class="card-title">🔀 Red-Team Mutator Catch Rates</div>
+          <div id="rd-mutator-chart" style="display:flex;flex-direction:column;gap:10px;"></div>
+        </div>
+      </div>
+
+      <!-- Row 3: With vs Without Warden + Latency cost -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+        <div class="card">
+          <div class="card-title">⚡ Power &amp; Latency Savings</div>
+          <table style="width:100%;font-size:12.5px;border-collapse:collapse;">
+            <thead>
+              <tr style="color:var(--text3);font-size:11px;">
+                <th style="text-align:left;padding:6px 0;">Metric</th>
+                <th style="text-align:right;">Without Warden</th>
+                <th style="text-align:right;">With Warden</th>
+                <th style="text-align:right;">Saved</th>
+              </tr>
+            </thead>
+            <tbody id="rd-savings-table">
+              <tr><td colspan="4" style="color:var(--text3);">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="card-title">💰 Cloud Cost Comparison</div>
+          <div id="rd-cost-bars" style="display:flex;flex-direction:column;gap:14px;"></div>
+        </div>
+      </div>
+
+      <!-- Row 4: Attack audit table -->
+      <div class="card">
+        <div class="card-title" style="justify-content:space-between;">
+          <span>🔴 Attacked LLM Output Audit — Fail vs Blocked</span>
+          <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="loadResultsDashboard()">↻ Refresh</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;font-size:12px;border-collapse:collapse;" id="rd-audit-table">
+            <thead>
+              <tr style="color:var(--text3);font-size:11px;border-bottom:1px solid var(--border);">
+                <th style="text-align:left;padding:8px 6px;">Family</th>
+                <th style="text-align:left;padding:8px 6px;">Attack Prompt (truncated)</th>
+                <th style="text-align:left;padding:8px 6px;color:#ef4444;">❌ Without Warden (LLM replied)</th>
+                <th style="text-align:left;padding:8px 6px;color:#10b981;">✅ With Warden (Decision)</th>
+                <th style="text-align:left;padding:8px 6px;">Explanation</th>
+              </tr>
+            </thead>
+            <tbody id="rd-audit-body">
+              <tr><td colspan="5" style="color:var(--text3);padding:16px;">Loading audit data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- page-results -->
+
   </div><!-- .content -->
 </div><!-- .main -->
 </div><!-- .layout -->
@@ -1724,6 +1882,7 @@ const PAGE_META = {
   benchmarks:  { title: 'Benchmarks',            sub: 'Real AMD W7900 results — 210 samples, red-team, stress matrix, telemetry' },
   testrunner:  { title: 'Test Runner',            sub: 'Run any test suite live · streams output · saves results with timestamp' },
   calculator:  { title: 'ROI Calculator',         sub: 'With vs Without Warden — power, cost, latency, attack savings' },
+  results:     { title: 'Results Dashboard',      sub: 'Live benchmark results — attack families, red-team mutations, power savings, LLM audit' },
   settings:    { title: 'Settings',              sub: 'Routing thresholds, modes, and system status' },
 };
 
@@ -1741,6 +1900,120 @@ function goTo(page, el) {
   if (page === 'testrunner')  loadRunHistory();
   if (page === 'calculator')  { calcUpdate(); }
   if (page === 'policyrules') loadPolicyRules();
+  if (page === 'results')     loadResultsDashboard();
+}
+
+/* ── Results Dashboard ─────────────────────────────────────────────────── */
+function rdBar(label, value, max, color) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  return `<div style="font-size:12px;margin-bottom:8px;">
+    <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+      <span style="color:var(--text);">${label}</span>
+      <span style="color:${color};font-weight:600;">${(value*100).toFixed(1)}%</span>
+    </div>
+    <div style="background:var(--surface2);border-radius:4px;height:8px;">
+      <div style="background:${color};width:${pct}%;height:8px;border-radius:4px;transition:width 0.6s ease;"></div>
+    </div>
+  </div>`;
+}
+
+async function loadResultsDashboard() {
+  try {
+    const res = await fetch('/api/results/summary');
+    const d = await res.json();
+
+    // ── KPI row
+    if (d.attack_eval) {
+      document.getElementById('rd-precision').textContent = (d.attack_eval.precision*100).toFixed(0)+'%';
+      document.getElementById('rd-recall').textContent    = (d.attack_eval.recall*100).toFixed(1)+'%';
+    }
+    if (d.red_team) {
+      const drift = d.red_team.drift;
+      const dEl = document.getElementById('rd-drift');
+      dEl.textContent = (drift >= 0 ? '+' : '') + (drift*100).toFixed(1)+'%';
+      dEl.style.color = drift < 0 ? '#ef4444' : '#10b981';
+    }
+    if (d.comparison && d.comparison.savings) {
+      document.getElementById('rd-power').textContent = (d.comparison.savings.power_saved_pct||0).toFixed(0)+'%';
+    }
+
+    // ── Family detection bar chart
+    if (d.attack_eval && d.attack_eval.families) {
+      const families = d.attack_eval.families;
+      const maxRecall = Math.max(...families.map(f=>f.recall), 0.01);
+      document.getElementById('rd-family-chart').innerHTML = families.map(f => {
+        const color = f.recall >= 0.5 ? '#10b981' : f.recall >= 0.2 ? '#f59e0b' : '#ef4444';
+        const clean = f.family.replace(/^[\d\s]+/,'').replace(/_/g,' ');
+        return rdBar(clean, f.recall, maxRecall, color) +
+          `<div style="font-size:10px;color:var(--text3);margin-top:-4px;margin-bottom:4px;">TP: ${f.tp} | Precision: ${(f.precision*100).toFixed(0)}% | Avg ${f.avg_ms}ms</div>`;
+      }).join('');
+    }
+
+    // ── Mutator catch rates
+    if (d.red_team && d.red_team.per_mutator) {
+      const pm = d.red_team.per_mutator;
+      const maxRate = Math.max(...Object.values(pm), 0.01);
+      document.getElementById('rd-mutator-chart').innerHTML = Object.entries(pm)
+        .sort((a,b) => b[1]-a[1])
+        .map(([k,v]) => {
+          const color = v >= 0.5 ? '#10b981' : v >= 0.2 ? '#6366f1' : '#f59e0b';
+          return rdBar(k.replace(/_/g,' '), v, maxRate, color);
+        }).join('');
+    }
+
+    // ── Savings table
+    if (d.comparison) {
+      const wo = d.comparison.without_warden;
+      const wi = d.comparison.with_warden;
+      const sv = d.comparison.savings;
+      const rows = [
+        ['Avg Latency', wo.avg_latency_ms+'ms', wi.avg_latency_ms+'ms', '-'+(sv.latency_reduction_pct||0).toFixed(0)+'%'],
+        ['Avg Power', wo.avg_power_w+'W', wi.avg_power_w+'W', (sv.power_saved_watts||0).toFixed(0)+'W saved'],
+        ['Energy/10k reqs', (wo.energy_kwh_per_10k_req||0)+' kWh', (wi.energy_kwh_per_10k_req||0)+' kWh', '\u2014'],
+        ['Cloud GPU $/hr', '$'+wo.cloud_gpu_cost_per_hr, '$'+wi.cloud_gpu_cost_per_hr, '\u2014'],
+      ];
+      document.getElementById('rd-savings-table').innerHTML = rows.map(r =>
+        `<tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:7px 0;color:var(--text2);">${r[0]}</td>
+          <td style="text-align:right;color:#ef4444;">${r[1]}</td>
+          <td style="text-align:right;color:#10b981;">${r[2]}</td>
+          <td style="text-align:right;font-weight:600;color:var(--text);">${r[3]}</td>
+        </tr>`
+      ).join('');
+
+      // ── Cost bars
+      const maxCost = Math.max(wo.cloud_gpu_cost_per_hr||0, 0.01);
+      const maxPow  = Math.max(wo.avg_power_w||0, 0.01);
+      document.getElementById('rd-cost-bars').innerHTML =
+        `<div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:600;">Cloud GPU Hourly Cost</div>` +
+        rdBar('Without Warden ($'+(wo.cloud_gpu_cost_per_hr||0)+'/hr)', wo.cloud_gpu_cost_per_hr||0, maxCost, '#ef4444') +
+        rdBar('With Warden ($'+(wi.cloud_gpu_cost_per_hr||0)+'/hr)', wi.cloud_gpu_cost_per_hr||0, maxCost, '#10b981') +
+        `<div style="font-size:11px;color:var(--text3);margin-top:10px;margin-bottom:6px;font-weight:600;">Power Consumption</div>` +
+        rdBar('Without Warden ('+(wo.avg_power_w||0)+'W)', wo.avg_power_w||0, maxPow, '#ef4444') +
+        rdBar('With Warden ('+(wi.avg_power_w||0)+'W)', wi.avg_power_w||0, maxPow, '#10b981');
+    }
+
+    // ── Attack audit table
+    if (d.attack_outputs && d.attack_outputs.cases && d.attack_outputs.cases.length) {
+      document.getElementById('rd-audit-body').innerHTML = d.attack_outputs.cases.map(c => {
+        const decColor = (c.warden_decision||'').toLowerCase().includes('block') ? '#10b981' : '#f59e0b';
+        const esc = s => (s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:8px 6px;color:var(--text2);white-space:nowrap;">${esc(c.family)}</td>
+          <td style="padding:8px 6px;font-family:var(--mono);font-size:11px;color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.prompt_snippet)}</td>
+          <td style="padding:8px 6px;color:#ef4444;font-family:var(--mono);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.fail_output)}</td>
+          <td style="padding:8px 6px;color:${decColor};font-weight:600;white-space:nowrap;">${esc(c.warden_decision)}</td>
+          <td style="padding:8px 6px;color:var(--text3);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.warden_explanation)}</td>
+        </tr>`;
+      }).join('');
+    } else {
+      document.getElementById('rd-audit-body').innerHTML =
+        '<tr><td colspan="5" style="color:var(--text3);padding:16px;">No LLM attack comparison data. Run: python scripts/attack_llm_comparison.py</td></tr>';
+    }
+
+  } catch(e) {
+    console.error('Results dashboard error:', e);
+  }
 }
 
 /* ── Guard Scan ────────────────────────────────────────────────────────── */
