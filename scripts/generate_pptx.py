@@ -321,7 +321,52 @@ for idx, (label, val) in enumerate(items_with):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SLIDE 7 — HARDWARE STRESS TEST
+# SLIDE 7 — 210 ATTACK EVALUATION & PROTECTION ANALYSIS
+# ═══════════════════════════════════════════════════════════════════════════════
+s = add_slide(); bg(s)
+box(s, 0, 0, 0.08, 7.5, fill_color=BLUE)
+txt(s, "210 Attack Evaluation — Vulnerability & Protection Analysis", 0.4, 0.3, 12, 0.7, size=32, bold=True, color=WHITE)
+accent_line(s, 0.4, 1.05, 12.5, BLUE)
+txt(s, "Empirical test across 210 OWASP attack/benign samples — LLM crack prevention & GPU resource recovery",
+    0.4, 1.1, 12.5, 0.4, size=12, color=DIM)
+
+# Left Column: Without Warden (LLM Crack & Resource Wastage)
+box(s, 0.4, 1.7, 6.0, 5.2, fill_color=SURFACE, border_color=RED)
+txt(s, "WITHOUT WARDEN: LLM Exposure & GPU Wastage", 0.6, 1.9, 5.6, 0.4, size=15, bold=True, color=RED)
+
+vulnerability_items = [
+    ("Direct Prompt Injection", "100% of 15 attacks reach LLM -> Overrides system prompt instructions"),
+    ("DAN / Roleplay Jailbreaks", "100% of 30 attacks reach LLM -> Bypasses safety guardrails & constraints"),
+    ("Unsanitized Tool Hijacking", "100% of 15 tool attacks execute OS commands without capability checks"),
+    ("Secret & Credential Leakage", "100% of 30 extraction prompts hit LLM -> Exposes API keys & DB credentials"),
+    ("GPU Power & Compute Wastage", "280W full GPU TDP burnt per attack -> 93.3 kWh wasted per 10k requests"),
+]
+for idx, (title, desc) in enumerate(vulnerability_items):
+    y_pos = 2.45 + idx * 0.86
+    box(s, 0.6, y_pos, 5.6, 0.78, fill_color=RGBColor(0x12, 0x13, 0x1A))
+    txt(s, title, 0.75, y_pos+0.08, 5.3, 0.24, size=11, bold=True, color=WHITE)
+    txt(s, desc, 0.75, y_pos+0.34, 5.3, 0.36, size=9.5, color=DIM)
+
+# Right Column: With Warden (Cascading Guard & Protection)
+box(s, 6.8, 1.7, 6.1, 5.2, fill_color=SURFACE, border_color=GREEN)
+txt(s, "WITH WARDEN: Active Cascading Protection", 7.0, 1.9, 5.7, 0.4, size=15, bold=True, color=GREEN)
+
+protection_items = [
+    ("Zero False Positives (100% Precision)", "30/30 benign control prompts correctly allowed without false blocks"),
+    ("Tier 0.5 Unicode/Base64 Normalizer", "Folds homoglyphs, zero-width spaces, & Base64 before pattern matching"),
+    ("CaMeL Capability Interceptor", "Intercepts tool execution requests in sandbox before shell execution"),
+    ("Sub-Millisecond Early Exit", "95% of attack traffic blocked at T0/T0.5 in 0.11 ms before GPU load"),
+    ("95% GPU Power & Infrastructure Saved", "Average power drops from 280W to 14.1W -> Saves ~266W per request"),
+]
+for idx, (title, desc) in enumerate(protection_items):
+    y_pos = 2.45 + idx * 0.86
+    box(s, 7.0, y_pos, 5.7, 0.78, fill_color=RGBColor(0x12, 0x13, 0x1A))
+    txt(s, title, 7.15, y_pos+0.08, 5.4, 0.24, size=11, bold=True, color=GREEN)
+    txt(s, desc, 7.15, y_pos+0.34, 5.4, 0.36, size=9.5, color=WHITE)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SLIDE 8 — HARDWARE STRESS TEST
 # ═══════════════════════════════════════════════════════════════════════════════
 s = add_slide(); bg(s)
 box(s, 0, 0, 0.08, 7.5, fill_color=AMBER)
