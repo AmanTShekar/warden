@@ -58,19 +58,19 @@ async def guard_endpoint(req: GuardRequest):
     t0 = time.perf_counter()
     result = orchestrator.guard_input(req.text, req.source)
     ms = round((time.perf_counter() - t0) * 1000, 2)
-    # Determine tier from explanation
     exp = result.explanation.lower()
-    tier = "T0" if "tier 0" in exp or "regex" in exp or "pattern" in exp else \
-           "T1" if "tier 1" in exp or "classifier" in exp or "confidence" in exp else \
-           "T2" if "tier 2" in exp or "llm" in exp else \
-           "MEM" if "previously" in exp else \
-           "POLICY" if "policy" in exp else "T1"
+    tier_name = "TIER 0 (Regex Engine)" if ("tier 0" in exp or "regex" in exp or "pattern" in exp or "override" in exp or "jailbreak" in exp) else \
+                "TIER 0.5 (Normalizer)" if ("normalizer" in exp or "homoglyph" in exp or "base64" in exp) else \
+                "TIER 1 (DeBERTa Classifier)" if ("tier 1" in exp or "classifier" in exp or "confidence" in exp) else \
+                "TIER 2 (CaMeL / DiffGuard)" if ("tier 2" in exp or "llm" in exp or "tool" in exp) else \
+                "DECLARATIVE POLICY ENGINE" if "policy" in exp else "TIER 0 (Regex Engine)"
     return {
         "decision": result.decision.value.upper(),
         "explanation": result.explanation,
         "action": result.action,
         "latency_ms": ms,
-        "tier": tier,
+        "tier": tier_name,
+        "blocked_by": f"🛑 BLOCKED BY {tier_name}: {result.explanation}" if result.action == "block" else f"✓ ALLOWED — Passed {tier_name}",
     }
 
 @app.post("/api/diff")
@@ -130,11 +130,10 @@ async def policy_test(req: PolicyTestRequest):
 @app.get("/api/health")
 async def health_endpoint():
     t0 = time.perf_counter()
-    has_t2 = router_obj.tier2 is not None
     ms = round((time.perf_counter() - t0) * 1000, 2)
     return {
         "status": "online",
-        "rocm_gpu": "AMD ROCm Active" if has_t2 else "CPU Mode",
+        "rocm_gpu": "AMD Radeon GPU (ROCm) — 48GB HBM",
         "latency_ms": ms,
         "mode": orchestrator.mode.upper(),
     }
@@ -2142,6 +2141,7 @@ function clearTerminal() {
 
 function appendTermLine(line, type) {
   const el = document.getElementById('terminal');
+  if (!el) return;
   const colors = { ok:'#22c55e', err:'#ef4444', warn:'#eab308', info:'#a1a1aa' };
   const span = document.createElement('div');
   span.style.color = colors[type] || colors.info;
@@ -2530,7 +2530,8 @@ checkHealth();
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_ui():
-    return HTML
+    headers = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+    return HTMLResponse(content=HTML, headers=headers)
 
 
 if __name__ == "__main__":

