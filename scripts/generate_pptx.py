@@ -856,6 +856,10 @@ txt(s, "Biggest gap: payload_swap 0.0%\n→ semantic rewrite evades all tiers",
 
 
 # ─── Save ────────────────────────────────────────────────────────────────────
-out = "enterprise_presentation/warden.pptx"
-prs.save(out)
-print(f"Saved: {out}  ({prs.slides.__len__()} slides)")
+import pathlib
+pathlib.Path("enterprise_presentation").mkdir(exist_ok=True)
+pathlib.Path("presentation").mkdir(exist_ok=True)
+
+prs.save("enterprise_presentation/warden.pptx")
+prs.save("presentation/warden.pptx")
+print(f"Saved: presentation/warden.pptx & enterprise_presentation/warden.pptx ({prs.slides.__len__()} slides)")
