@@ -44,6 +44,12 @@ class Tier1Classifier(TierChecker):
             import torch
 
             model_name = self._config.classifier_model_name
+            import os
+            for lp in ["/root/models/deberta", "/workspace/models/deberta", "models/deberta"]:
+                if os.path.exists(lp):
+                    model_name = lp
+                    break
+
             logger.info(f"Loading Tier 1 classifier: {model_name}")
 
             self._tokenizer = AutoTokenizer.from_pretrained(model_name)
