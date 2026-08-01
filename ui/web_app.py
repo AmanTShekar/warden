@@ -2492,6 +2492,9 @@ async function runPolicyTest() {
     document.getElementById('policyLatency').textContent = d.latency_ms + ' ms';
     document.getElementById('policyReason').textContent = d.reason || '—';
     document.getElementById('policyTestResult').classList.add('show');
+  } catch(e) {
+    alert('Error testing policy: ' + e.message);
+  }
 }
 
 /* ── Live Health & Connection Monitor ───────────────────────────────────── */
