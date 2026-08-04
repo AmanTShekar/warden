@@ -40,8 +40,8 @@ def main():
     print(f"Loaded {len(dataset)} payloads for evaluation.")
     print("Initializing Warden 3-Tier Router...")
     
-    # Initialize router (it will gracefully degrade if models aren't loaded)
-    router = create_router()
+    from warden.config import WardenConfig
+    router = create_router(WardenConfig())
     
     y_true = []
     y_pred = []
