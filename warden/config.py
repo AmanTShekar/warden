@@ -8,10 +8,101 @@ feature flags. Loaded once at startup, referenced everywhere.
 from __future__ import annotations
 
 import os
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+_log = logging.getLogger(__name__)
+
+
+def _probe_free_vram_mb() -> int:
+    """Return free VRAM in MB by querying rocm-smi or nvidia-smi.
+    Returns 0 if neither is available (CPU-only mode)."""
+    import subprocess
+    import shutil
+    # --- AMD ROCm path ---
+    if shutil.which("rocm-smi"):
+        try:
+            out = subprocess.check_output(
+                ["rocm-smi", "--showmeminfo", "vram", "--csv"],
+                timeout=5, stderr=subprocess.DEVNULL, text=True,
+            )
+            for line in out.splitlines():
+                # e.g.  card0, VRAM Total Memory (B), 51380224000
+                #       card0, VRAM Total Used Memory (B), 1234567890
+                if "Used" in line and line.strip():
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 3:
+                        total_used = int(parts[2])
+                        continue
+                if "Total" in line and "Used" not in line:
+                    parts = [p.strip() for p in line.split(",")]
+                    if len(parts) >= 3:
+                        total_b = int(parts[2])
+            # free ≈ total − used (both in bytes → MB)
+            return max(0, (total_b - total_used) // (1024 * 1024))
+        except Exception:
+            pass
+    # --- NVIDIA path (fallback for CI / mixed environments) ---
+    if shutil.which("nvidia-smi"):
+        try:
+            out = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                timeout=5, stderr=subprocess.DEVNULL, text=True,
+            )
+            return int(out.strip().splitlines()[0])
+        except Exception:
+            pass
+    return 0
+
+
+# Quantization selection table: (min_free_vram_MB, kv_cache_type, model_quant_hint)
+# Listed from most VRAM-hungry (best quality) to least.
+_QUANT_TABLE = [
+    (40_000, "f16",    "F16 / BF16 — full precision, highest quality"),
+    (20_000, "q8_0",   "Q8_0 — near-lossless, 8-bit KV cache"),
+    (12_000, "q5_k_m", "Q5_K_M — excellent quality/VRAM tradeoff"),
+    (6_000,  "q4_k_m", "Q4_K_M — good quality, smallest footprint"),
+    (0,      "q4_0",   "Q4_0 — minimum VRAM, degraded quality"),
+]
+
+
+def auto_select_quantization(free_vram_mb: Optional[int] = None) -> tuple[str, str]:
+    """Return (kv_cache_type, human_readable_reason) for the available VRAM.
+
+    Probes the GPU if free_vram_mb is not supplied.
+    Falls back to q4_0 on CPU-only systems.
+    """
+    vram = free_vram_mb if free_vram_mb is not None else _probe_free_vram_mb()
+    for threshold, kv_type, label in _QUANT_TABLE:
+        if vram >= threshold:
+            reason = f"{label} (detected {vram:,} MB free VRAM)"
+            _log.info(f"[AutoQuant] Selected kv_cache_type={kv_type!r}: {reason}")
+            return kv_type, reason
+    # Absolute fallback
+    return "q4_0", f"Q4_0 fallback — {vram} MB free VRAM (CPU-only or probe failed)"
+
+
+def auto_select_gpu_layers(free_vram_mb: Optional[int] = None, bytes_per_layer: int = 140_000_000) -> int:
+    """Estimate safe n_gpu_layers for the detected VRAM.
+
+    bytes_per_layer default: ~140 MB for a 7B model at Q8_0 per layer.
+    Returns -1 (full offload) when VRAM is ample, or a partial layer count.
+    """
+    vram = free_vram_mb if free_vram_mb is not None else _probe_free_vram_mb()
+    if vram <= 0:
+        _log.info("[AutoLayers] No GPU detected — n_gpu_layers=0 (CPU inference)")
+        return 0
+    # Reserve 2 GB headroom for KV-cache, activations, and OS overhead.
+    usable_mb = max(0, vram - 2048)
+    max_layers = usable_mb * 1024 * 1024 // bytes_per_layer
+    if max_layers >= 32:      # Qwen-7B has 32 transformer layers
+        _log.info(f"[AutoLayers] Full offload — {vram:,} MB free, n_gpu_layers=-1")
+        return -1
+    _log.info(f"[AutoLayers] Partial offload — {vram:,} MB free, n_gpu_layers={max_layers}")
+    return max(1, max_layers)
 
 
 class TrustLevel(Enum):
@@ -83,7 +174,13 @@ class ModelConfig:
     llm_flash_attn: bool = True     # Flash attention acceleration on Radeon GPUs
     llm_offload_kqv: bool = True    # Offload KQV directly into Radeon VRAM
     llm_n_batch: int = 512          # Prompt batch size for wide parallel instruction processing
-    llm_kv_cache_type: str = "q8_0"  # KV cache quantization: "f16" (default) or "q8_0" (saves ~50% KV VRAM)
+    # Auto-quantization (RECOMMENDED ON): probe VRAM at load time and select
+    # the best KV cache type + GPU layer count automatically.
+    # Set WARDEN_LLM_AUTO_QUANT=0 (or llm_auto_quant=False) to pin manually.
+    llm_auto_quant: bool = True
+
+    llm_kv_cache_type: str = "q8_0"  # KV cache quantization: "f16" | "q8_0" | "q5_k_m" | "q4_k_m" | "q4_0"
+                                       # Overridden at runtime by auto_select_quantization() when llm_auto_quant=True
     llm_warmup_on_load: bool = True # Dispatch 1-token no-op after load to swap weights into VRAM
     llm_physical_threads: bool = True  # Pin n_threads to physical cores (not logical HT) for prompt eval
 
@@ -108,7 +205,8 @@ class ModelConfig:
     classifier_model_name: str = "protectai/deberta-v3-base-prompt-injection-v2"
     classifier_threshold_block: float = 0.85
     classifier_threshold_allow: float = 0.05
-    classifier_device: str = "cpu"  # Prompt Guard 2 accelerated on ROCm (changed to cpu for local eval)
+    classifier_device: str = "auto"  # "cpu" | "cuda" | "hip" | "auto"
+                                        # "auto" = use GPU (ROCm/CUDA) when available, fall back to CPU
 
     # Model selection note: default is Qwen2.5-Coder-7B-Instruct (Q4_K_M)
     # Change llm_model_path based on what GPU is provided on AMD Radeon Cloud
@@ -168,6 +266,8 @@ class WardenConfig:
             config.model.llm_n_gpu_layers_fallback = int(gpu_layers_fallback)
         if kv_type := os.environ.get("WARDEN_LLM_KV_CACHE_TYPE"):
             config.model.llm_kv_cache_type = kv_type
+        if auto_quant := os.environ.get("WARDEN_LLM_AUTO_QUANT"):
+            config.model.llm_auto_quant = auto_quant.lower() in ("1", "true", "yes")
         if seed := os.environ.get("WARDEN_LLM_SEED"):
             config.model.llm_seed = int(seed)
         if warmup := os.environ.get("WARDEN_LLM_WARMUP"):
