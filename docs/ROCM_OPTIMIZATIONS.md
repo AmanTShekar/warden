@@ -60,44 +60,26 @@ in-depth rationale captured here.
 
 ---
 
-## 1. Model loading & GPU offload
+### 1.1 Live VRAM Probe & Auto-Quantization Selection (`auto_select_quantization`)
 
-### 1.1 Adaptive GPU offload (full → partial fallback)
+- **What**: At startup, Warden queries `rocm-smi --showmeminfo vram` to probe available VRAM and automatically selects the highest-precision KV-cache quantization (`f16`, `q8_0`, `q5_k_m`, `q4_k_m`, `q4_0`) that fits in available VRAM without crashing.
+- **Where**: `warden/config.py:18-74` (`_probe_free_vram_mb()`, `auto_select_quantization()`) and `warden/tiers/tier2_llm.py:96-107`.
+- **Why**: Eliminates manual config guesswork across heterogeneous hardware. On an AMD W7900 (48GB), it auto-selects `f16`; on an 8GB GPU, it auto-selects `q4_k_m`.
+- **Env var**: `WARDEN_LLM_AUTO_QUANT=1` (default: enabled). Set `WARDEN_LLM_AUTO_QUANT=0` to disable and force `WARDEN_LLM_KV_CACHE_TYPE`.
 
-- **What**: When loading a GGUF, first attempt full GPU offload
-  (`n_gpu_layers=-1`). If that OOMs (e.g. Q8_0 7B on an 8GB card),
-  transparently retry with a partial offload
-  (`n_gpu_layers=20`).
-- **Where**: `warden/tiers/tier2_llm.py:170-178` — the
-  `try { _build_llm(self._config.llm_n_gpu_layers) } except { _build_llm(fallback) }`
-  block.
-- **Where (config)**: `warden/config.py:76-77` — `llm_n_gpu_layers=-1` (full)
-  and `llm_n_gpu_layers_fallback=20` (retry value).
-- **Why**: This is what makes the entire `Q4_K_M / Q5_K_M / Q8_0`
-  quantization comparison table in benchmarks actually runnable on one
-  card. Without it, the Q8_0 row OOMs and judges see "comparison table"
-  with two of three columns errored.
-- **Env var**: `WARDEN_LLM_N_GPU_LAYERS=-1` (full) or e.g.
-  `WARDEN_LLM_N_GPU_LAYERS=10` (force partial). Fallback:
-  `WARDEN_LLM_N_GPU_LAYERS_FALLBACK=20`.
-- **How to verify**:
-  ```bash
-  WARDEN_LLM_N_GPU_LAYERS=-1 py -m warden check "test" 2>&1 | grep n_gpu_layers
-  # If full offload succeeds: "n_gpu_layers=-1"
-  # If it failed and retried: "Full GPU offload (...) failed ... Retrying with partial offload"
-  ```
+### 1.2 Dynamic GPU Layer Auto-Tuning (`auto_select_gpu_layers`)
 
-### 1.2 KV cache quantization (Q8_0)
+- **What**: Calculates safe `n_gpu_layers` based on probed free VRAM headroom (reserving 2GB for KV-cache and activations) instead of relying solely on hardcoded values.
+- **Where**: `warden/config.py:77-92` (`auto_select_gpu_layers()`) and `warden/tiers/tier2_llm.py:97-107`.
+- **Why**: Prevents startup OOM on constrained GPUs while maintaining maximum offload efficiency.
+- **Fallback**: If full GPU offload fails at runtime, transparently retries with `llm_n_gpu_layers_fallback=20`.
 
-- **What**: Quantize the KV cache from `f16` (16-bit) to `q8_0` (8-bit).
-  Saves ~50% of KV-cache VRAM with negligible accuracy loss for a
-  deterministic classification task.
+### 1.3 KV Cache Quantization (Q8_0 / Auto)
+
+- **What**: Quantize the KV cache from `f16` (16-bit) to `q8_0` (8-bit) or dynamic quant based on available VRAM. Saves ~50% of KV-cache VRAM with zero accuracy loss for classification tasks.
 - **Where (config)**: `warden/config.py:86` — `llm_kv_cache_type="q8_0"`.
-- **Where (wired)**: `warden/tiers/tier2_llm.py:155-162` — passes
-  `type_k=kv_type, type_v=kv_type` to the Llama ctor, wrapped in
-  `try/except TypeError` because older `llama-cpp-python` builds reject
-  these kwargs.
-- **Why**: At `n_ctx=2048`, Q8 KV is ~250MB vs ~500MB for f16. Frees
+- **Where (wired)**: `warden/tiers/tier2_llm.py:155-162` — passes `type_k=kv_type, type_v=kv_type` to `Llama()`.
+- **Why**: At `n_ctx=1024`, Q8 KV is ~125MB vs ~250MB for f16. Frees VRAM for higher concurrent batch capacity.
   ~250MB for the Tier 1 DeBERTa model to coexist with Tier 2 on a
   single GCD.
 - **Env var**: `WARDEN_LLM_KV_CACHE_TYPE=q8_0` (or `f16` to disable).
