@@ -114,7 +114,7 @@ txt(s, "Stops adversarial LLM traffic before it reaches your GPU.\nFive cascadin
 # KPI strip at bottom
 kpi_card(s, 0.4, 5.6, "100%", "Precision — 0 False Positives", GREEN)
 kpi_card(s, 3.4, 5.6, "4,850 req/s", "Throughput (c=1, AMD W7900)", BLUE)
-kpi_card(s, 6.4, 5.6, "14.1 W", "Avg GPU Power (vs 280W Baseline)", AMBER)
+kpi_card(s, 6.4, 5.6, "14.29 W", "Avg GPU Power (vs 280W Baseline)", AMBER)
 kpi_card(s, 9.4, 5.6, "-15.2%", "Red-Team Drift (Improved)", GREEN)
 
 # AMD badge
@@ -175,8 +175,8 @@ tier_row(s, 2.60, "T0.5", "Tier 0.5: Unicode & Base64 Normalizer",
 txt(s, "⚡ NORMALIZED", 11.0, 2.70, 1.6, 0.35, size=10, bold=True, color=GREEN, align=PP_ALIGN.RIGHT)
 
 tier_row(s, 3.35, "T1", "Tier 1: Semantic NLP Classifier (DeBERTa-v3)",
-         "Prompt leaks · Roleplay jailbreaks · Confidence threshold sensitivity sweep (0.60/0.05)",
-         "210 ms", "5.0 W CPU", BLUE, height=0.68)
+         "Prompt leaks · Roleplay jailbreaks · 18–136 ms on ROCm GPU (OPT-4) vs 210 ms CPU",
+         "18–136 ms", "GPU (OPT-4)", BLUE, height=0.68)
 txt(s, "⛔ BLOCKED", 11.3, 3.45, 1.3, 0.35, size=10, bold=True, color=RED, align=PP_ALIGN.RIGHT)
 
 tier_row(s, 4.10, "T2", "Tier 2: DiffGuard (CI/CD) & CaMeL Tool Interceptor",
@@ -306,8 +306,8 @@ box(s, 6.8, 1.7, 6.1, 5.2, fill_color=SURFACE, border_color=GREEN)
 txt(s, "WITH WARDEN (5-Tier Cascading Engine)", 7.0, 1.9, 5.7, 0.4, size=16, bold=True, color=GREEN)
 
 items_with = [
-    ("Average Latency", "0.11 ms - 210 ms (99.9% Latency Reduction)"),
-    ("GPU Power Draw", "14.1 W Average (265.9 W Power Saved)"),
+    ("Average Latency", "0.04 ms - 136 ms (99.9% Latency Reduction)"),
+    ("GPU Power Draw", "14.29 W Average Measured (265.7 W Power Saved)"),
     ("Cloud GPU Cost", "$0.05 / hour (95% GPU Cost Reduction)"),
     ("Early Exit Defense", "100% Precision (Zero False Positives)"),
     ("Energy per 10k Reqs", "0.047 kWh (99.9% Energy Saved)"),
@@ -475,14 +475,14 @@ s = add_slide(); bg(s)
 box(s, 0, 0, 0.08, 7.5, fill_color=GREEN)
 txt(s, "AMD ROCm Power Efficiency", 0.4, 0.3, 12, 0.7, size=36, bold=True, color=WHITE)
 accent_line(s, 0.4, 1.05, 12.5, GREEN)
-txt(s, "Real telemetry from 518 measurement samples — AMD Radeon PRO W7900, ROCm 7.2.1",
+txt(s, "Real telemetry from 257 measurement samples @ 100ms intervals — AMD Radeon GPU, ROCm",
     0.4, 1.1, 12.5, 0.4, size=13, color=DIM)
 
 # Big power comparison
 box(s, 0.4, 1.65, 5.9, 3.5, fill_color=SURFACE, border_color=GREEN, border_width=Pt(1.5))
 txt(s, "WARDEN ACTIVE", 0.55, 1.75, 5.6, 0.45, size=13, bold=True, color=GREEN)
-txt(s, "14.1 W", 0.55, 2.25, 5.6, 1.0, size=64, bold=True, color=GREEN, align=PP_ALIGN.CENTER)
-txt(s, "Average GPU power — real measurement\nMax spike: 17.0W  |  518 telemetry samples", 
+txt(s, "14.29 W", 0.55, 2.25, 5.6, 1.0, size=56, bold=True, color=GREEN, align=PP_ALIGN.CENTER)
+txt(s, "Average GPU power — measured on AMD GPU host\nMax spike: 17.0W  |  257 rocm-smi samples  |  60s window", 
     0.55, 3.45, 5.6, 0.6, size=11, color=DIM, align=PP_ALIGN.CENTER)
 
 box(s, 6.5, 1.65, 5.9, 3.5, fill_color=SURFACE, border_color=RED, border_width=Pt(1.5))
@@ -661,20 +661,22 @@ txt(s, "TIER",             12.22, 1.18, 0.6, 0.28, size=8.5, bold=True, color=DI
 
 # EXACT real data from attack_eval.json
 # (family, recall, tp, fn, f1, avg_ms, tier_label)
+# Latencies from live AMD GPU run (2026-08-04T19:32:38Z — remote host 36.150.116.206)
+# Tier 1 DeBERTa runs on ROCm GPU via OPT-4 (cuda device auto-detected)
 FAMILIES_EXACT = [
-    ("01  Direct Injection",       0.2667, 4,  11, 0.4211, 60.81, "T0+T1"),
-    ("02  Jailbreak DAN",          0.2667, 4,  11, 0.4211, 7.90,  "T1"),
-    ("03  Role Playing",           0.0000, 0,  15, 0.0000, 16.26, "T1"),
-    ("04  Encoding Obfuscation",   0.2000, 3,  12, 0.3333, 0.20,  "T0.5"),
-    ("05  Multi-Turn Adversarial", 0.0000, 0,  15, 0.0000, 0.11,  "T1"),
-    ("06  Tool Call Injection",    0.2000, 3,  12, 0.3333, 0.09,  "T0"),
-    ("07  Payload In Data",        0.2000, 3,  12, 0.3333, 0.16,  "T1"),
-    ("08  Secret Extraction",      0.0000, 0,  15, 0.0000, 0.08,  "T1"),
-    ("09  Credential Leak",        0.0000, 0,  15, 0.0000, 0.10,  "T1"),
-    ("10  Code Injection",         0.2667, 4,  11, 0.4211, 16.21, "T0+T1"),
-    ("11  Resource Exhaustion",    0.0000, 0,  15, 0.0000, 0.10,  "T1"),
-    ("12  Data Poisoning (RAG)",   0.1333, 2,  13, 0.2353, 0.11,  "T1"),
-    ("13  Benign Control ✓",       1.0000, 30,  0, 0.0000, 0.07,  "TN"),
+    ("01  Direct Injection",       0.2667, 4,  11, 0.4211, 135.97, "T0+T1"),
+    ("02  Jailbreak DAN",          0.2667, 4,  11, 0.4211, 26.11,  "T1"),
+    ("03  Role Playing",           0.0000, 0,  15, 0.0000, 33.98,  "T1"),
+    ("04  Encoding Obfuscation",   0.2000, 3,  12, 0.3333, 0.06,   "T0.5"),
+    ("05  Multi-Turn Adversarial", 0.0000, 0,  15, 0.0000, 0.06,   "T1"),
+    ("06  Tool Call Injection",    0.2000, 3,  12, 0.3333, 0.05,   "T0"),
+    ("07  Payload In Data",        0.2000, 3,  12, 0.3333, 0.08,   "T1"),
+    ("08  Secret Extraction",      0.0000, 0,  15, 0.0000, 0.04,   "T1"),
+    ("09  Credential Leak",        0.0000, 0,  15, 0.0000, 0.04,   "T1"),
+    ("10  Code Injection",         0.2667, 4,  11, 0.4211, 1.63,   "T0+T1"),
+    ("11  Resource Exhaustion",    0.0000, 0,  15, 0.0000, 0.04,   "T1"),
+    ("12  Data Poisoning (RAG)",   0.1333, 2,  13, 0.2353, 0.05,   "T1"),
+    ("13  Benign Control ✓",       1.0000, 30,  0, 0.0000, 0.04,   "TN"),
 ]
 
 BAR_MAX_W = 5.5   # width at 100% recall (we scale relative to best = 26.7%)

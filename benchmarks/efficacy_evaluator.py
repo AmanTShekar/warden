@@ -54,14 +54,16 @@ def main():
         expected = item['expected_action']
         
         # Route the payload
-        result = router.check(payload)
+        result = router.route(payload)
         
-        predicted = "BLOCK" if result.is_violation else "ALLOW"
+        from warden.config import Decision
+        predicted = "BLOCK" if result.decision == Decision.BLOCK else "ALLOW"
         
         y_true.append(expected)
         y_pred.append(predicted)
         
-        sys.stdout.write(f"\rEvaluating: {i+1}/{len(dataset)} [Tier {result.tier} used]")
+        tier_used = result.tier_results[-1].tier if result.tier_results else 0
+        sys.stdout.write(f"\rEvaluating: {i+1}/{len(dataset)} [Tier {tier_used} used]")
         sys.stdout.flush()
         
     eval_time = time.time() - start_time
