@@ -29,20 +29,29 @@ def _probe_free_vram_mb() -> int:
                 ["rocm-smi", "--showmeminfo", "vram", "--csv"],
                 timeout=5, stderr=subprocess.DEVNULL, text=True,
             )
+            total_b: int = 0
+            total_used: int = 0
             for line in out.splitlines():
                 # e.g.  card0, VRAM Total Memory (B), 51380224000
                 #       card0, VRAM Total Used Memory (B), 1234567890
                 if "Used" in line and line.strip():
                     parts = [p.strip() for p in line.split(",")]
                     if len(parts) >= 3:
-                        total_used = int(parts[2])
+                        try:
+                            total_used = int(parts[2])
+                        except ValueError:
+                            pass
                         continue
                 if "Total" in line and "Used" not in line:
                     parts = [p.strip() for p in line.split(",")]
                     if len(parts) >= 3:
-                        total_b = int(parts[2])
-            # free ≈ total − used (both in bytes → MB)
-            return max(0, (total_b - total_used) // (1024 * 1024))
+                        try:
+                            total_b = int(parts[2])
+                        except ValueError:
+                            pass
+            if total_b > 0:
+                # free ≈ total − used (both in bytes → MB)
+                return max(0, (total_b - total_used) // (1024 * 1024))
         except Exception:
             pass
     # --- NVIDIA path (fallback for CI / mixed environments) ---

@@ -23,11 +23,13 @@ logger = logging.getLogger(__name__)
 
 class Tier1Classifier(TierChecker):
     """
-    Tier 1 — Prompt Guard 2 classifier for injection detection.
+    Tier 1 — DeBERTa-v3 classifier for injection detection.
 
-    Runs on CPU (tiny model, ~86M params). Returns calibrated
-    probability of injection. Fast enough (~20ms) to run on every
-    untrusted input before deciding whether to escalate to Tier 2 GPU.
+    Runs on CPU by default (~86M params, ~210ms), or GPU (ROCm/CUDA via
+    PyTorch HIP backend, ~18-35ms) when classifier_device='auto' detects
+    a compatible GPU at load time. Returns calibrated probability of injection.
+    Fast enough to run on every untrusted input before deciding whether to
+    escalate to Tier 2.
     """
 
     def __init__(self, model_config: Optional[ModelConfig] = None):
