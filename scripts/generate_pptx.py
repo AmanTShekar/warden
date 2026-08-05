@@ -205,8 +205,8 @@ txt(s, "210 attack samples · 13 OWASP LLM families · 24-Point Threshold Sensit
 
 # Hero KPIs
 kpi_card(s, 0.4,  1.65, "100%",    "Precision\n(0 False Positives)", GREEN)
-kpi_card(s, 3.4,  1.65, "73.7%",   "Base64 Evasion\nCatch Rate (T0.5)", GREEN)
-kpi_card(s, 6.4,  1.65, "-15.2%",  "Red-Team Drift\n(Improved via Norm)", GREEN)
+kpi_card(s, 3.4,  1.65, "80.0%",   "Total Attack\nCatch Rate (Recall)", GREEN)
+kpi_card(s, 6.4,  1.65, "19.8 W",  "Average Power\nDuring Load", GREEN)
 kpi_card(s, 9.4,  1.65, "30/30",   "Benign Samples\nCorrectly Allowed", GREEN)
 
 # Family breakdown table
@@ -307,7 +307,7 @@ txt(s, "WITH WARDEN (5-Tier Cascading Engine)", 7.0, 1.9, 5.7, 0.4, size=16, bol
 
 items_with = [
     ("Average Latency", "0.04 ms - 136 ms (99.9% Latency Reduction)"),
-    ("GPU Power Draw", "14.29 W Average Measured (265.7 W Power Saved)"),
+    ("GPU Power Draw", "19.8 W Average Measured (260.2 W Power Saved)"),
     ("Cloud GPU Cost", "$0.05 / hour (95% GPU Cost Reduction)"),
     ("Early Exit Defense", "100% Precision (Zero False Positives)"),
     ("Energy per 10k Reqs", "0.047 kWh (99.9% Energy Saved)"),
@@ -356,7 +356,7 @@ protection_items = [
     ("Tier 0.5 Unicode/Base64 Normalizer", "Folds homoglyphs, zero-width spaces, & Base64 before pattern matching"),
     ("CaMeL Capability Interceptor", "Intercepts tool execution requests in sandbox before shell execution"),
     ("Sub-Millisecond Early Exit", "95% of attack traffic blocked at T0/T0.5 in 0.11 ms before GPU load"),
-    ("95% GPU Power & Infrastructure Saved", "Average power drops from 280W to 14.1W -> Saves ~266W per request"),
+    ("95% GPU Power & Infrastructure Saved", "Average power drops from 280W to 19.8W -> Saves ~260W per request"),
 ]
 for idx, (title, desc) in enumerate(protection_items):
     y_pos = 2.45 + idx * 0.86
@@ -493,7 +493,7 @@ txt(s, "Continuous GPU power with no routing\nEstimated from vendor TDP specs",
 
 # Savings strip
 box(s, 0.4, 5.35, 12.5, 0.8, fill_color=RGBColor(0x10, 0x19, 0x14), border_color=GREEN, border_width=Pt(1.5))
-txt(s, "⚡  ~266 Watts saved per blocked request   |   AMD Infinity Fabric sleep-state active 95% of runtime",
+txt(s, "⚡  ~260 Watts saved per blocked request   |   AMD Infinity Fabric sleep-state active 95% of runtime",
     0.55, 5.5, 12.2, 0.45, size=14, bold=True, color=GREEN, align=PP_ALIGN.CENTER)
 
 # ROCm optimizations
@@ -607,7 +607,7 @@ accomplished = [
     "Data-backed threshold sensitivity sweep (0.60/0.05)",
     "Red-team drift flipped to -0.152 (IMPROVED)",
     "4,850 req/s on AMD W7900 (real measurement)",
-    "14.1W avg power vs 280W baseline",
+    "19.8W avg power vs 280W baseline",
     "CaMeL Tool Interceptor & Policy-as-Code Engine",
     "Enterprise UI with SSE Live Test Runner & ROI Calculator",
 ]
