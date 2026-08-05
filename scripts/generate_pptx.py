@@ -285,7 +285,7 @@ txt(s, "Direct side-by-side benchmark across 210 OWASP attack/benign samples (AM
 
 # Left Box: Without Warden
 box(s, 0.4, 1.7, 6.0, 5.2, fill_color=SURFACE, border_color=RED)
-txt(s, "WITHOUT WARDEN (Standard Unprotected LLM)", 0.6, 1.9, 5.6, 0.4, size=16, bold=True, color=RED)
+txt(s, "WITHOUT WARDEN (Modeled Baseline - not separately measured)", 0.6, 1.9, 5.6, 0.4, size=12, bold=True, color=RED)
 
 items_without = [
     ("Average Latency", "1,200 ms - 4,800 ms per request"),
@@ -332,7 +332,7 @@ txt(s, "Empirical test across 210 OWASP attack/benign samples — LLM crack prev
 
 # Left Column: Without Warden (LLM Crack & Resource Wastage)
 box(s, 0.4, 1.7, 6.0, 5.2, fill_color=SURFACE, border_color=RED)
-txt(s, "WITHOUT WARDEN: LLM Exposure & GPU Wastage", 0.6, 1.9, 5.6, 0.4, size=15, bold=True, color=RED)
+txt(s, "WITHOUT WARDEN: Modeled Baseline", 0.6, 1.9, 5.6, 0.4, size=15, bold=True, color=RED)
 
 vulnerability_items = [
     ("Direct Prompt Injection", "100% of 15 attacks reach LLM -> Overrides system prompt instructions"),
@@ -493,7 +493,7 @@ txt(s, "Continuous GPU power with no routing\nEstimated from vendor TDP specs",
 
 # Savings strip
 box(s, 0.4, 5.35, 12.5, 0.8, fill_color=RGBColor(0x10, 0x19, 0x14), border_color=GREEN, border_width=Pt(1.5))
-txt(s, "⚡  ~260 Watts saved per blocked request   |   AMD Infinity Fabric sleep-state active 95% of runtime",
+txt(s, "⚡  ~260 Watts power reduction   |   AMD Infinity Fabric sleep-state active 95% of runtime",
     0.55, 5.5, 12.2, 0.45, size=14, bold=True, color=GREEN, align=PP_ALIGN.CENTER)
 
 # ROCm optimizations
