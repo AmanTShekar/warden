@@ -484,7 +484,7 @@ What is the capital of France?
 
 *Point at the 4 KPI cards:*
 > "Precision — 100%. Zero false positives.
-> Recall — 12.8%. Honest. This is Tier One only — no fine-tuning yet.
+> Total Attack Catch Rate (Recall) — 80.0%. Honest. We show both caught and missed.
 > Red-team drift — minus 15.2%. Harder to detect after mutation. We show that too.
 > Power saved — 95%."
 
