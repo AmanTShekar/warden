@@ -81,12 +81,12 @@
   Switch to PPT Slide 6 or Conclusion Slide (`presentation/warden.pptx`).  
   Screen shows **With vs Without Warden Comparison**:  
   - Without Warden: 280W GPU power  
-  - With Warden: **14.29W** average GPU power (257 live rocm-smi samples, 60s window)  
-  - **94.9% Power Savings on AMD ROCm — Empirically Measured**
+  - With Warden: **19.8W** average GPU power (993 live rocm-smi samples, 300s window)  
+  - **92% Power Savings on AMD ROCm — Empirically Measured**
 
 📋 **Fish Audio TTS Copy-Paste Block (Scene 5):**
 ```text
-[authoritative] One number to remember: ninety-five percent power reduction. (short pause) On real AMD ROCm hardware. Measured. Reproducible. Open source. (pause)
+[authoritative] One number to remember: ninety-two percent power reduction. (short pause) On real AMD ROCm hardware. Measured. Reproducible. Open source. (pause)
 
 [excited] Route smarter. Not harder.
 ```
