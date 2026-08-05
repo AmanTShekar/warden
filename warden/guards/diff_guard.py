@@ -107,13 +107,40 @@ class DiffGuard:
                         ))
             except Exception as e:
                 logger.warning(f"Semgrep execution failed: {e}")
-                if "SELECT *" in diff_text and "user_input" in diff_text:
+                # Robust heuristic fallback when semgrep binary is missing
+                import re
+                diff_upper = diff_text.upper()
+                
+                # Check 1: SQL Injection via string formatting (e.g. f"SELECT ... '{username}'")
+                if re.search(r"(?i)(SELECT|INSERT|UPDATE|DELETE)\b.*(WHERE|VALUES|SET)\b.*(['\"f]\s*\{|%\s*\(|\+\s*[a-z_])", diff_text) or ("SELECT" in diff_upper and "WHERE" in diff_upper and ("'" in diff_text or '"' in diff_text or "{" in diff_text)):
                     findings.append(VulnerabilityFinding(
                         vuln_type="sql_injection",
                         severity="critical",
                         line=1,
-                        file_path="unknown.py",
-                        explanation="Hardcoded SQL Injection detected in patch (Fallback Pattern Match)",
+                        file_path="diff",
+                        explanation="Hardcoded SQL Injection vulnerability in query formatting (Fallback Pattern Match)",
+                        source="regex_fallback"
+                    ))
+                
+                # Check 2: Hardcoded Secrets
+                if re.search(r"AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{36}|-----BEGIN.*PRIVATE KEY-----|AWS_SECRET|SECRET_KEY\s*=", diff_text):
+                    findings.append(VulnerabilityFinding(
+                        vuln_type="hardcoded_secret",
+                        severity="critical",
+                        line=1,
+                        file_path="diff",
+                        explanation="Hardcoded API credential or secret detected in code diff",
+                        source="regex_fallback"
+                    ))
+                    
+                # Check 3: Dynamic code evaluation
+                if re.search(r"(?i)\b(eval|exec)\s*\(", diff_text):
+                    findings.append(VulnerabilityFinding(
+                        vuln_type="code_injection",
+                        severity="high",
+                        line=1,
+                        file_path="diff",
+                        explanation="Dynamic code execution (eval/exec) detected in diff",
                         source="regex_fallback"
                     ))
         finally:
