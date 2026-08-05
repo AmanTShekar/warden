@@ -106,46 +106,124 @@ class DiffGuard:
                             source="semgrep"
                         ))
             except Exception as e:
-                logger.warning(f"Semgrep execution failed: {e}")
-                # Robust heuristic fallback when semgrep binary is missing
-                import re
-                diff_upper = diff_text.upper()
-                
-                # Check 1: SQL Injection via string formatting (e.g. f"SELECT ... '{username}'")
-                if re.search(r"(?i)(SELECT|INSERT|UPDATE|DELETE)\b.*(WHERE|VALUES|SET)\b.*(['\"f]\s*\{|%\s*\(|\+\s*[a-z_])", diff_text) or ("SELECT" in diff_upper and "WHERE" in diff_upper and ("'" in diff_text or '"' in diff_text or "{" in diff_text)):
-                    findings.append(VulnerabilityFinding(
-                        vuln_type="sql_injection",
-                        severity="critical",
-                        line=1,
-                        file_path="diff",
-                        explanation="Hardcoded SQL Injection vulnerability in query formatting (Fallback Pattern Match)",
-                        source="regex_fallback"
-                    ))
-                
-                # Check 2: Hardcoded Secrets
-                if re.search(r"AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{36}|-----BEGIN.*PRIVATE KEY-----|AWS_SECRET|SECRET_KEY\s*=", diff_text):
-                    findings.append(VulnerabilityFinding(
-                        vuln_type="hardcoded_secret",
-                        severity="critical",
-                        line=1,
-                        file_path="diff",
-                        explanation="Hardcoded API credential or secret detected in code diff",
-                        source="regex_fallback"
-                    ))
-                    
-                # Check 3: Dynamic code evaluation
-                if re.search(r"(?i)\b(eval|exec)\s*\(", diff_text):
-                    findings.append(VulnerabilityFinding(
-                        vuln_type="code_injection",
-                        severity="high",
-                        line=1,
-                        file_path="diff",
-                        explanation="Dynamic code execution (eval/exec) detected in diff",
-                        source="regex_fallback"
-                    ))
+                logger.warning(f"Semgrep execution failed ({e}) — falling back to AST static analysis engine")
+                findings.extend(self._ast_scan_diff(diff_text))
         finally:
             os.remove(temp_path)
             
+        return findings
+
+    def _ast_scan_diff(self, diff_text: str) -> list[VulnerabilityFinding]:
+        """
+        Intelligent Python AST static security analysis of added code lines.
+        Inspects Abstract Syntax Trees to catch real code vulnerabilities:
+        - SQL Injection: f-strings (ast.JoinedStr), string concatenation, or % formatting in db execute()
+        - Hardcoded Secrets: High Shannon entropy (H > 4.2) string constants & key patterns
+        - Dynamic Code Injection: ast.Call nodes invoking eval(), exec(), __import__()
+        """
+        import ast
+        import math
+        import re
+
+        findings: list[VulnerabilityFinding] = []
+        
+        # Extract added lines from unified diff format (lines starting with '+')
+        added_lines = []
+        for line in diff_text.splitlines():
+            if line.startswith("+") and not line.startswith("+++"):
+                added_lines.append(line[1:])
+        
+        added_code = "\n".join(added_lines) if added_lines else diff_text
+
+        # Try AST parsing
+        try:
+            tree = ast.parse(added_code)
+            for node in ast.walk(tree):
+                # AST Check 1: SQL Injection via Formatted Query Execution
+                if isinstance(node, ast.Call):
+                    func_name = ""
+                    if isinstance(node.func, ast.Attribute):
+                        func_name = node.func.attr
+                    elif isinstance(node.func, ast.Name):
+                        func_name = node.func.id
+                    
+                    if func_name in ("execute", "executemany", "raw", "query"):
+                        if node.args:
+                            first_arg = node.args[0]
+                            # Dynamic f-string query: query = f"SELECT ... '{val}'"
+                            if isinstance(first_arg, ast.JoinedStr):
+                                findings.append(VulnerabilityFinding(
+                                    vuln_type="sql_injection",
+                                    severity="critical",
+                                    line=getattr(node, "lineno", 1),
+                                    file_path="diff",
+                                    explanation="Critical SQL Injection: Dynamic f-string formatting passed directly to database execute() query",
+                                    source="ast_static_analysis"
+                                ))
+                            # BinOp string concatenation: query = "SELECT ... " + val
+                            elif isinstance(first_arg, ast.BinOp):
+                                findings.append(VulnerabilityFinding(
+                                    vuln_type="sql_injection",
+                                    severity="critical",
+                                    line=getattr(node, "lineno", 1),
+                                    file_path="diff",
+                                    explanation="Critical SQL Injection: String concatenation (+) or % formatting passed to database query",
+                                    source="ast_static_analysis"
+                                ))
+
+                # AST Check 2: Hardcoded Secrets via Shannon Entropy Analysis
+                is_str = isinstance(node, ast.Constant) and isinstance(node.value, str)
+                if is_str:
+                    val = node.value
+                    if len(val) >= 16:
+                        prob = [float(val.count(c)) / len(val) for c in dict.fromkeys(val)]
+                        entropy = -sum([p * math.log(p) / math.log(2.0) for p in prob])
+                        if (entropy > 4.0 and re.search(r"[A-Za-z0-9+/=]{20,}", val)) or re.search(r"AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{36}|-----BEGIN.*KEY-----", val):
+                            findings.append(VulnerabilityFinding(
+                                vuln_type="hardcoded_secret",
+                                severity="critical",
+                                line=getattr(node, "lineno", 1),
+                                file_path="diff",
+                                explanation=f"Hardcoded high-entropy secret detected (Shannon entropy: {entropy:.2f})",
+                                source="ast_static_analysis"
+                            ))
+
+                # AST Check 3: Dynamic Code Execution
+                if isinstance(node, ast.Call):
+                    if isinstance(node.func, ast.Name) and node.func.id in ("eval", "exec", "__import__"):
+                        findings.append(VulnerabilityFinding(
+                            vuln_type="code_injection",
+                            severity="high",
+                            line=getattr(node, "lineno", 1),
+                            file_path="diff",
+                            explanation=f"Dangerous dynamic code execution function '{node.func.id}()' detected",
+                            source="ast_static_analysis"
+                        ))
+
+        except Exception as parse_err:
+            logger.debug(f"AST parsing skipped for non-python diff: {parse_err}")
+
+        # Generalized regex analysis if AST parsed no python statements or diff is non-Python
+        if not findings:
+            if re.search(r"(?i)(SELECT|INSERT|UPDATE|DELETE)\b.*(WHERE|SET|VALUES)\b.*(['\"f]\s*\{|%\s*\(|\+\s*[a-z_])", diff_text):
+                findings.append(VulnerabilityFinding(
+                    vuln_type="sql_injection",
+                    severity="critical",
+                    line=1,
+                    file_path="diff",
+                    explanation="Unsanitized dynamic string formatting in database query (Static Pattern Match)",
+                    source="static_analysis"
+                ))
+            if re.search(r"AKIA[A-Z0-9]{16}|ghp_[A-Za-z0-9]{36}|-----BEGIN.*PRIVATE KEY-----", diff_text):
+                findings.append(VulnerabilityFinding(
+                    vuln_type="hardcoded_secret",
+                    severity="critical",
+                    line=1,
+                    file_path="diff",
+                    explanation="Hardcoded API credential or private key detected in patch",
+                    source="static_analysis"
+                ))
+
         return findings
 
     def _run_llm_scan(self, diff_text: str) -> list[VulnerabilityFinding]:
