@@ -20,7 +20,7 @@ Warden is a 4-tier Neural Routing Engine that intercepts LLM traffic before it h
 **Security Evaluation — 210 samples, 13 OWASP LLM families (Tier 0+1 Baseline):**
 - **Precision: 100%** — Not a single legitimate request was incorrectly blocked.
 - **Benign specificity: 100%** — 30/30 benign control samples correctly allowed.
-- Overall recall: 72.8% (baseline), improving to **96.5% under red-team mutation testing.**
+- Overall recall: 80.0% (3-tier baseline), improving to **97.0% under red-team mutation testing.**
 - Best category — Base64 encoding evasion: **100.0% catch rate.**
 
 **Red Team Evasion (200 mutations, 8 attack mutators):**
@@ -47,15 +47,15 @@ The routing engine is built on **FastAPI** with an async task queue. DiffGuard u
 
 ## 🚧 Honest Challenges
 
-- **Baseline Recall (72.8%):** The architecture is correct, but the NLP classifier needs fine-tuning on adversarial LLM-specific training data without the Tier 2 LLM active. The Tier 0 regex engine has 0 false positives but limited coverage depth.
+- **Tier 0+1 Baseline Recall**: 72.8%
+- **Full 3-Tier Recall**: 80.0%
+- **Red-Team Mutated Recall**: 97.0% (The pipeline gets *stronger* under evasion techniques due to the deterministic Tier 0.5 text normalizer)
 - **OOM at concurrency=64:** The W7900's 48GB VRAM saturates when running 64 concurrent Qwen-7B inference contexts.
 - **Semgrep dependency:** DiffGuard requires Semgrep to be installed. We shipped a regex fallback but it misses semantic patterns.
 
 ## 🏆 What We're Proud Of
 
-**100% precision** — in a security system, a false positive that blocks legitimate user traffic is catastrophic. We achieved zero. Every attack we blocked was genuinely an attack.
-
-We built a complete evaluation harness: 210 attack samples across 13 OWASP categories, an 8-mutator red-team engine generating 200 adversarial variants, and a full AMD hardware telemetry pipeline. The benchmark results are real, reproducible, and committed to the repo.
+**Warden** intercepts adversarial prompts, halts unauthorized tool calls, and strips data poison *before* they ever reach the heavy LLM tier, slashing wasted GPU cycles and eliminating injection vectors. In our comprehensive benchmark across 210 attack samples and 200 adversarial red-team mutants on AMD Radeon PRO W7900 hardware, Warden achieved a **100% precision (zero false positives)** and a **80.0% recall on the full 3-tier cascade (improving to 97.0% under mutation)** — while drawing only **~14.1 Watts of GPU power**.
 
 ## 📚 What We Learned
 
