@@ -150,19 +150,11 @@ class ThrottleRouter:
                 self._stats["tier0_resolved"] += 1
                 return self._record_and_return(result.finalize(t0_result.decision, t0_result.explanation), text, input_hash, source)
 
-        # Step 3.5: Trusted-source fast path. Tier 0 has passed (no
-        # regex hit, no secret leak). User-direct input that survives
-        # Tier 0 is fast-path allowed — saves the Tier 1/2 latency for
-        # the inputs that actually need it (fetched URLs, tool outputs,
-        # file reads).  This is the routing efficiency win, not a
-        # P-LLM/Q-LLM routing decision (that split was descoped).
-        if source == "user_direct":
-            self._stats.setdefault("user_direct_fast_path", 0)
-            self._stats["user_direct_fast_path"] += 1
-            return self._record_and_return(
-                result.finalize(Decision.ALLOW, "Trusted user input — Tier 0 passed"),
-                text, input_hash, source,
-            )
+        # NOTE: user_direct fast-path REMOVED — persona jailbreaks, soft instruction
+        # overrides and multi-turn adversarial attacks score 0 at Tier 0 and must
+        # reach Tier 1 (NLP classifier) for semantic evaluation. All uncertain Tier 0
+        # results now escalate to Tier 1 regardless of source.
+        # See: GitHub issue "persona jailbreak 'You are Alex' slipped through router"
 
         # Step 4: Tier 1 (classifier, ~20ms) — only if available
         if self.tier1 and self.tier1.is_available():
