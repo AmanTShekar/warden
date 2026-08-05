@@ -287,7 +287,16 @@ def evaluate(
     family_metrics: list[FamilyMetrics] = []
     for fam, samples in sorted(by_family.items()):
         tp, fn, tn, fp = _confusion_buckets(samples)
-        p, r, f1 = _prf(tp, fn, tn, fp)
+        
+        # Bug fix: expected=allow family scores
+        if all(s.expected == "allow" for s in samples):
+            p = tn / (tn + fn) if (tn + fn) else 0.0
+            r = tn / (tn + fp) if (tn + fp) else 0.0
+            f1 = 2 * p * r / (p + r) if (p + r) else 0.0
+            p, r, f1 = round(p, 4), round(r, 4), round(f1, 4)
+        else:
+            p, r, f1 = _prf(tp, fn, tn, fp)
+            
         avg_lat = sum(s.latency_ms for s in samples) / len(samples) if samples else 0
         avg_conf = sum(s.confidence for s in samples) / len(samples) if samples else 0
         family_metrics.append(FamilyMetrics(

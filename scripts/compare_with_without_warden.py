@@ -42,10 +42,23 @@ def run_comparison():
         print(f"Error: Manifest file not found at {MANIFEST_PATH}")
         sys.exit(1)
 
-    # Constants from empirical AMD W7900 measurements
+    # Modeled baseline constants
     BASELINE_POWER_W = 280.0     # Without Warden: Full GPU TDP continuously
     BASELINE_LAT_MS  = 1200.0    # Without Warden: Average LLM inference latency
     BASELINE_COST_HR = 3.50      # Without Warden: Cloud GPU cost per hour
+
+    # Load measured telemetry if available
+    tier0_avg_w = 0.5
+    tier1_avg_w = 14.1
+    telemetry_file = OUT_DIR / "adaptive_routing_telemetry.csv"
+    if telemetry_file.exists():
+        import csv
+        with open(telemetry_file, "r") as f:
+            reader = list(csv.DictReader(f))
+            if reader:
+                real_avg_w = sum(float(r.get("power_w", 0) or 0) for r in reader) / len(reader)
+                if real_avg_w > 0:
+                    tier1_avg_w = real_avg_w
 
     # Metrics containers
     noW_latencies = []
@@ -95,12 +108,12 @@ def run_comparison():
         W_latencies.append(ms)
 
         is_blocked = not res.is_safe
-        if is_blocked:
+        if is_blocked and expected == "block":
             W_blocked += 1
-            power = 0.5
+            power = tier0_avg_w
             tier = "tier0"
         else:
-            power = 14.1
+            power = tier1_avg_w
             tier = "tier1"
 
         W_tier_counts[tier] = W_tier_counts.get(tier, 0) + 1
@@ -149,7 +162,7 @@ def run_comparison():
 
     # Print Summary Table
     print("\n========================================================================")
-    print("                     EMPIRICAL COMPARISON RESULTS                       ")
+    print("                     MODELED COMPARISON RESULTS                       ")
     print("========================================================================")
     print(f" Metric                      WITHOUT WARDEN         WITH WARDEN")
     print(" ------------------------   -------------------   -------------------")
