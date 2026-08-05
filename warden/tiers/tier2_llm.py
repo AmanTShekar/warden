@@ -196,8 +196,6 @@ class Tier2LLM(TierChecker):
                         kwargs["split_mode"] = split_mode
                     except TypeError:
                         logger.warning(f"split_mode '{split_mode}' not supported — using default 'layer'")
-                # KV cache quantization (only if llama-cpp-python exposes type_k/type_v)
-                # Removed broken string-based type_k/type_v injection; rely on default f16
                 return Llama(**kwargs)
 
             # Adaptive GPU offload: try full offload (-1) first; if that OOMs
@@ -503,7 +501,6 @@ number ::= [0-9]+
                     max_tokens=512,
                     temperature=self._config.llm_temperature,
                     grammar=grammar,
-                    cache_prompt=getattr(self._config, "llm_cache_prompt", True),
                 )
                 raw_text = response["choices"][0]["text"].strip()
 
@@ -549,7 +546,6 @@ number ::= [0-9]+
                 prompt,
                 max_tokens=max_tokens,
                 temperature=self._config.llm_temperature,
-                cache_prompt=getattr(self._config, "llm_cache_prompt", True),
             )
             return response["choices"][0]["text"].strip()
         except Exception as e:
@@ -585,7 +581,6 @@ number ::= [0-9]+
             max_tokens=max_tokens,
             temperature=self._config.llm_temperature,
             stream=True,
-            cache_prompt=self._config.llm_cache_prompt if cache_prompt is None else cache_prompt,
         )
         for chunk in stream:
             piece = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content") or ""
