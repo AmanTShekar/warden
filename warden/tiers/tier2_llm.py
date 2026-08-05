@@ -255,7 +255,6 @@ class Tier2LLM(TierChecker):
                             _static_prefix,
                             max_tokens=1,
                             temperature=0.0,
-                            cache_prompt=True,
                         )
                         logger.debug("Tier 2 prefix KV-cache primed (~120 tokens cached)")
                     except Exception as e:
@@ -340,7 +339,6 @@ string ::= "\"" ( [^"\\] | "\\" . )* "\""
                     max_tokens=256,
                     temperature=self._config.llm_temperature,
                     grammar=grammar,
-                    cache_prompt=getattr(self._config, "llm_cache_prompt", True),
                 )
                 raw_text = response["choices"][0]["text"].strip()
 
@@ -417,7 +415,6 @@ string ::= "\"" ( [^"\\] | "\\" . )* "\""
                     max_tokens=256 * count,
                     temperature=self._config.llm_temperature,
                     grammar=grammar,
-                    cache_prompt=getattr(self._config, "llm_cache_prompt", True),
                 )
                 raw_text = response["choices"][0]["text"].strip()
 
@@ -583,7 +580,7 @@ number ::= [0-9]+
             stream=True,
         )
         for chunk in stream:
-            piece = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content") or ""
+            piece = (chunk.get("choices") or [{}])[0].get("text") or ""
             if piece:
                 yield piece, (_time.perf_counter() - start) * 1000.0
 

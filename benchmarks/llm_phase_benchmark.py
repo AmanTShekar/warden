@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import dataclasses
 import pathlib
 import sys
 from dataclasses import dataclass, field, asdict
@@ -212,7 +213,7 @@ def write_outputs(rows: list[PhaseMetrics], label: str) -> None:
     json_path.write_text(
         json.dumps([r.as_dict() for r in rows], indent=2), encoding="utf-8")
     with csv_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(asdict(PhaseMetrics()).keys()))
+        writer = csv.DictWriter(f, fieldnames=[f.name for f in dataclasses.fields(PhaseMetrics)])
         writer.writeheader()
         for r in rows:
             writer.writerow(r.as_dict())
