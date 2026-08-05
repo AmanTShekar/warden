@@ -5,6 +5,8 @@ if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
 
+export HF_HUB_OFFLINE=1
+
 echo "================================================="
 echo "🛡️ WARDEN GPU BENCHMARK SUITE (ROCm)"
 echo "================================================="
