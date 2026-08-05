@@ -26,10 +26,10 @@ Because Warden routes 97% of traffic to the CPU (0.1ms to 45ms), the GPU is only
 
 ## 3. Power (Electricity) Reduction Analysis
 
-Based on our direct hardware telemetry captured via `rocm-smi` on the AMD W7900:
+Based on our direct hardware telemetry captured via `rocm-smi` on the AMD W7900 for Warden, compared against a modeled baseline for monolithic architectures:
 
-*   **Monolithic:** 1M requests * 250W * 2s = 500,000,000 Joules (138 kWh) per day.
-*   **Warden:** 
+*   **Monolithic (Modeled Baseline):** Assumes every request hits a 7B model at full TDP (~250W, ~2000ms). 1M requests * 250W * 2s = 500,000,000 Joules (138 kWh) per day. (Not separately measured in this submission).
+*   **Warden (Measured):** 
     *   Tier 0: 450,000 reqs * 9W * 0.0001s = 405 Joules
     *   Tier 1: 520,000 reqs * 15W * 0.045s = 351,000 Joules
     *   Tier 2: 30,000 reqs * 241W * 1.2s = 8,676,000 Joules

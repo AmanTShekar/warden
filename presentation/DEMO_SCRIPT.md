@@ -146,7 +146,7 @@
 
 [energetic] When an LLM calls external APIs or local shell tools, the CaMeL interceptor verifies the tool call parameters in real time — blocking attempts to read sensitive files like slash etc slash passwd. (pause)
 
-[authoritative] Now look at our Results Dashboard. These aren't estimated numbers. This is measured hardware telemetry on an AMD Radeon PRO W7900. (pause) Precision: one-hundred percent. Power saved: ninety-five percent — average GPU power drops from two-hundred-and-eighty watts baseline down to fourteen point one watts. (pause)
+[authoritative] Now look at our Results Dashboard. The Warden power draw is measured hardware telemetry on an AMD Radeon PRO W7900. (pause) Precision: one-hundred percent. Power saved: ninety-five percent — average GPU power drops from a modeled two-hundred-and-eighty watts baseline down to a measured fourteen point one watts. (pause)
 
 [confident] Everything you just saw — the two-hundred-and-ten sample attack evaluation, the unit tests, the telemetry pipeline — is committed to GitHub, MIT licensed, and fully reproducible. (pause)
 
