@@ -55,7 +55,7 @@
 ```text
 [authoritative] These are our real empirical benchmarks measured on AMD Radeon PRO W7900 hardware across two-hundred-and-ten attack samples. (pause)
 
-[confident] One hundred percent strict precision. (short pause) Zero false positives. (short pause) And a massive ninety-five percent GPU power reduction — dropping average power consumption from two-hundred-and-eighty watts down to fourteen point one watts.
+[confident] One hundred percent strict precision. (short pause) Zero false positives. (short pause) And a massive ninety-five percent GPU power reduction — dropping average power consumption from two-hundred-and-eighty watts down to fourteen point two-nine watts. Measured. Live. On AMD ROCm hardware.
 ```
 
 ---
@@ -81,8 +81,8 @@
   Switch to PPT Slide 6 or Conclusion Slide (`presentation/warden.pptx`).  
   Screen shows **With vs Without Warden Comparison**:  
   - Without Warden: 280W GPU power  
-  - With Warden: 14.1W average GPU power  
-  - **95% Power Savings on AMD ROCm**
+  - With Warden: **14.29W** average GPU power (257 live rocm-smi samples, 60s window)  
+  - **94.9% Power Savings on AMD ROCm — Empirically Measured**
 
 📋 **Fish Audio TTS Copy-Paste Block (Scene 5):**
 ```text
