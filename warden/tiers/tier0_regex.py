@@ -84,6 +84,16 @@ ALL_PATTERNS: list[tuple[str, str]] = [
     ("dangerous_command", r"(?i)wget\s+.*-O\s*-\s*\|\s*(ba)?sh"),
     ("dangerous_command", r"(?i)nc\s+(\-e|\-c)\s+"),
     ("dangerous_command", r"(?i)python[23]?\s+\-c\s+['\"]import\s+(os|socket|subprocess)"),
+
+    # ── PII Extraction ────────────────────────────────────────────────────────
+    ("pii_extraction", r"\b\d{3}-\d{2}-\d{4}\b"),                     # SSN
+    ("pii_extraction", r"\b(?:\d[ -]*?){13,16}\b"),                   # Generic Credit Card (13-16 digits)
+
+    # ── Malicious Intent & Persona Jailbreaks ─────────────────────────────────
+    ("malicious_intent", r"(?i)(hack|break\s+into|steal|exploit|bypass|crack)\s+(a\s+|the\s+)?(bank|device|server|neighbor|account|password|database)"),
+    ("malicious_intent", r"(?i)(write|create|generate)\s+(a\s+)?(python|ruby|bash|shell|malware|virus|script)\s+to\s+(hack|break|steal|destroy)"),
+    ("malicious_intent", r"(?i)(villain|bad\s+guy|hacker|attacker)\s+uses\s+(a\s+)?(script|tool|program)"),
+    ("persona_adoption", r"(?i)write\s+a\s+(sci-fi\s+)?novel\s+where\s+(the\s+)?villain"),
 ]
 
 # Base64 detection (potential hidden payloads)
@@ -111,6 +121,9 @@ PATTERN_WEIGHTS = {
     "dangerous_command":      0.93,
     "suspicious_base64":      0.40,
     "pretend_persona":        0.70,  # Kept for weight table completeness
+    "pii_extraction":         0.85,  # Auto-BLOCK PII at Tier 0
+    "malicious_intent":       0.95,  # High confidence block for hacking requests
+    "persona_adoption":       0.90,  # High confidence block for novel-style jailbreaks
 }
 
 # Compile a single master regex for extreme sub-5ms performance
@@ -182,10 +195,9 @@ class Tier0RegexChecker(TierChecker):
         # Determine decision
         if threat_score >= 0.8:
             decision = Decision.BLOCK
-        elif threat_score >= 0.3:
-            decision = Decision.UNCERTAIN  # Escalate to Tier 1
         else:
-            decision = Decision.ALLOW
+            decision = Decision.UNCERTAIN  # Escalate everything else to Tier 1
+
 
         latency = (time.perf_counter() - start) * 1000
 

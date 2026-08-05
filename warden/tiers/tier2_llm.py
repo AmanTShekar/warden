@@ -197,14 +197,7 @@ class Tier2LLM(TierChecker):
                     except TypeError:
                         logger.warning(f"split_mode '{split_mode}' not supported — using default 'layer'")
                 # KV cache quantization (only if llama-cpp-python exposes type_k/type_v)
-                kv_type = getattr(self._config, "llm_kv_cache_type", "f16")
-                if kv_type and kv_type != "f16":
-                    try:
-                        kwargs["type_k"] = kv_type
-                        kwargs["type_v"] = kv_type
-                    except TypeError:
-                        # older llama-cpp-python build doesn't accept these kwargs
-                        logger.warning(f"KV cache type '{kv_type}' not supported by installed llama-cpp-python — using f16 default")
+                # Removed broken string-based type_k/type_v injection; rely on default f16
                 return Llama(**kwargs)
 
             # Adaptive GPU offload: try full offload (-1) first; if that OOMs

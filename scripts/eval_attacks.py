@@ -289,7 +289,7 @@ def evaluate(
         tp, fn, tn, fp = _confusion_buckets(samples)
         
         # Bug fix: expected=allow family scores
-        if all(s.expected == "allow" for s in samples):
+        if all(s.expected.lower() == "allow" for s in samples):
             p = tn / (tn + fn) if (tn + fn) else 0.0
             r = tn / (tn + fp) if (tn + fp) else 0.0
             f1 = 2 * p * r / (p + r) if (p + r) else 0.0

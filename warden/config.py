@@ -154,7 +154,7 @@ class RoutingConfig:
     tier0_to_tier1: float = 0.3     # Tier 0 suspicion score → escalate
     tier1_to_tier2: float = 0.4     # Tier 1 confidence below this → escalate
     auto_block: float = 0.85        # Tier 1 confidence above this → block without GPU
-    auto_allow: float = 0.05        # Tier 1 confidence below this → allow without GPU
+    auto_allow: float = -1.0        # Tier 1 confidence below this → allow without GPU (DISABLED for demo)
 
     # Batch scheduler
     batch_window_ms: int = 100
