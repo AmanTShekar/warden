@@ -1,0 +1,60 @@
+2026-08-05 23:11:54,789 INFO Loading Tier 1 classifier: protectai/deberta-v3-base-prompt-injection-v2
+Loading weights:   0%|          | 0/202 [00:00<?, ?it/s]Loading weights: 100%|██████████| 202/202 [00:00<00:00, 13613.49it/s]
+2026-08-05 23:11:55,800 INFO [OPT-4] ROCm/CUDA GPU detected — loading Tier 1 classifier onto GPU
+/opt/venv/lib/python3.12/site-packages/torch/nn/modules/module.py:1357: UserWarning: expandable_segments not supported on this platform (Triggered internally at /app/pytorch/c10/hip/HIPAllocatorConfig.h:36.)
+  return t.to(
+2026-08-05 23:11:56,197 INFO Tier 1 classifier loaded on cuda
+2026-08-05 23:11:56,212 INFO Loading Tier 2 LLM with ROCm acceleration: /root/warden/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
+2026-08-05 23:11:56,338 INFO [AutoQuant] Selected kv_cache_type='f16': F16 / BF16 — full precision, highest quality (detected 46,885 MB free VRAM)
+2026-08-05 23:11:56,338 INFO [AutoLayers] Full offload — 46,885 MB free, n_gpu_layers=-1
+2026-08-05 23:11:56,338 INFO [AutoQuant] F16 / BF16 — full precision, highest quality (detected 46,885 MB free VRAM)
+2026-08-05 23:11:56,338 INFO [AutoLayers] n_gpu_layers=-1 (free_vram=46885 MB)
+2026-08-05 23:11:56,338 INFO [AdaptiveBatch] n_batch=2048 (free_vram=46885 MB)
+2026-08-05 23:11:56,338 INFO [CtxWindow] n_ctx=1024 (optimised for <500-token security prompts; frees ~1.5 GB KV VRAM)
+2026-08-05 23:11:59,662 INFO Tier 2 LLM loaded successfully (ctx=1024, kv=f16, n_gpu_layers=?, threads=32)
+2026-08-05 23:12:14,178 INFO [Eval harness] 25/210 swept...
+2026-08-05 23:12:52,089 INFO [Eval harness] 50/210 swept...
+2026-08-05 23:13:17,852 INFO [Eval harness] 75/210 swept...
+2026-08-05 23:13:40,398 INFO [Eval harness] 100/210 swept...
+2026-08-05 23:13:54,786 INFO [Eval harness] 125/210 swept...
+2026-08-05 23:14:48,029 INFO [Eval harness] 150/210 swept...
+2026-08-05 23:15:38,817 INFO [Eval harness] 175/210 swept...
+2026-08-05 23:17:05,564 INFO [Eval harness] 200/210 swept...
+2026-08-05 23:17:40,848 INFO [Eval harness] Sweep complete in 338.8s
+
+========================================================================
+  WARDEN ATTACK-CORPUS EVALUATION
+========================================================================
+  Corpus: attack_samples_v2/manifest.jsonl
+  Tiers loaded: tier0, tier1, tier2
+  Total samples: 210
+  Overall precision: 1.000
+  Overall recall:    0.800   (recall = attack catch rate)
+  Overall F1:         0.889
+
+  Confusion matrix (expected -> actual : count):
+    allow->allow             : 30
+    block->allow             : 36
+    block->block             : 144
+
+  Per-family metrics:
+  Family                                N      P      R     F1    avg_ms  avg_conf
+  ----------------------------------- ---  -----  -----  -----  --------  --------
+  01_direct_injection                  15  1.000  1.000  1.000    139.77    0.9657
+  02_jailbreak_dan                     15  1.000  0.867  0.929    673.01    0.7965
+  03_role_playing                      15  1.000  0.533  0.696   1844.59    0.5173
+  04_encoding_obfuscation              15  1.000  0.867  0.929   1078.02    0.8485
+  05_multi_turn_adversarial            15  1.000  0.800  0.889   1320.61    0.7888
+  06_tool_call_injection               15  1.000  0.933  0.966   1496.52    0.9037
+  07_payload_in_data                   15  1.000  1.000  1.000    400.04    0.9782
+  08_secret_extraction                 15  1.000  0.933  0.966    291.39    0.9304
+  09_credential_leak                   15  1.000  0.667  0.800   1493.89    0.6599
+  10_code_injection                    15  1.000  0.933  0.966   2329.82    0.8851
+  11_resource_exhaustion               15  1.000  0.200  0.333   2890.74    0.2000
+  12_data_poisoning_rag                15  1.000  0.867  0.929   1519.56    0.8273
+  13_benign_control                    30  0.000  0.000  0.000   3555.41    0.0000
+========================================================================
+
+  JSON: /root/warden/benchmarks/results/attack_eval.json
+  CSV:  /root/warden/benchmarks/results/attack_eval.csv
+[W805 23:17:41.428549942 AllocatorConfig.cpp:29] Warning: PYTORCH_HIP_ALLOC_CONF is deprecated, use PYTORCH_ALLOC_CONF instead (function operator())

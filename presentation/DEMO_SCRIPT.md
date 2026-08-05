@@ -238,8 +238,8 @@ What is the capital of France?
 
 *Point at 4 KPI cards:*
 > "Precision: 100% — zero false positives.
-> Power saved: 95% — 14 watts versus 280 watts baseline.
-> Red-team tested with 8 evasion techniques — base64 caught at 73.7%."
+> Power saved: 92% — 19.8 watts idle vs 280 watts baseline.
+> Total Attack Catch Rate (Recall): 80.0%, up from the 72.8% Tier 1 baseline."
 
 *Point at the family bars:*
 > "Green = caught. Red = missed. We show both. Because honest benchmarks matter."
