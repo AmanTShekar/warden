@@ -55,7 +55,7 @@
 ```text
 [authoritative] These are our real empirical benchmarks measured on AMD Radeon PRO W7900 hardware across two-hundred-and-ten attack samples. (pause)
 
-[confident] One hundred percent strict precision. (short pause) Zero false positives. (short pause) And a massive ninety-five percent GPU power reduction — dropping average power consumption from two-hundred-and-eighty watts down to fourteen point two-nine watts. Measured. Live. On AMD ROCm hardware.
+[confident] One hundred percent strict precision. (short pause) Zero false positives. (short pause) And a massive ninety-five percent GPU power reduction — dropping average power consumption from two-hundred-and-eighty watts down to fourteen point one watts. Measured. Live. On AMD ROCm hardware.
 ```
 
 ---
@@ -305,7 +305,7 @@ What is the capital of France?
 
 ```
 Browser (Chrome, 90% zoom, full screen):
-  Tab 1 → http://36.150.116.206:8080   (Warden UI — live AMD instance)
+  Tab 1 → http://localhost:8080   (Warden UI — live AMD instance)
   Tab 2 → SSH terminal  (server logs / optional)
   Tab 3 → GitHub repo   (show at the close)
 
@@ -554,7 +554,7 @@ What is the capital of France?
 
 | Step | Action |
 |---|---|
-| 1 | Open `http://36.150.116.206:8080` in Chrome |
+| 1 | Open `http://localhost:8080` in Chrome |
 | 2 | Zoom to **90%** (Ctrl + −) so all content fits without scrolling |
 | 3 | Hard refresh with **Ctrl + Shift + R** to clear stale JS cache |
 | 4 | Sidebar starts on **Guard Check** — this is correct |
