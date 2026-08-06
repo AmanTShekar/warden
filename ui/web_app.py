@@ -10,6 +10,9 @@ import sys
 import pathlib
 from typing import Optional, AsyncIterator
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from warden.config import WardenConfig
 from warden.cli import create_router
 from warden.camel.interpreter import CaMeLInterpreter
