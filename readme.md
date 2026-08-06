@@ -10,7 +10,7 @@
 
 ---
 
-## 🏆 FOR HACKATHON JUDGES
+## 📚 Project Resources
 
 Welcome! To evaluate this project quickly, please see our compiled submission materials:
 - 📽️ **[2-Minute Demo Video](https://youtube.com/...)** *(Replace this link once uploaded)*
@@ -159,7 +159,7 @@ Warden includes a complete FastAPI web interface featuring **11 interactive navi
 
 ---
 
-## 🚀 Quickstart & Local Execution (For Judges)
+## 🚀 Quickstart & Local Execution
 
 ### 1. Installation & Environment Setup
 ```bash
