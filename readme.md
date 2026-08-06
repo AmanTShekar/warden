@@ -10,6 +10,16 @@
 
 ---
 
+## 🏆 FOR HACKATHON JUDGES
+
+Welcome! To evaluate this project quickly, please see our compiled submission materials:
+- 📽️ **[2-Minute Demo Video](https://youtube.com/...)** *(Replace this link once uploaded)*
+- 📑 **[Pitch Deck / Presentation](presentation/warden.pdf)**
+- 📖 **[Devpost Submission Narrative](devpost_submission.md)**
+- 📊 **[Full Benchmark Results](docs/COST_AND_POWER_ANALYSIS.md)**
+
+---
+
 ## 🏛️ Executive Summary & Core Problem
 
 In production enterprise AI deployments, **100% of incoming user prompts** are typically routed directly to massive 70B+ parameter generative LLMs just to evaluate basic safety policies. 
@@ -76,10 +86,11 @@ All benchmark data is measured on dedicated **AMD Radeon PRO W7900 hardware (48G
 |--------|-------|-------------------|
 | **Precision (False Positive Rate)** | **100.0% (0.0% FPR)** | **Zero legitimate user queries blocked** across all benchmarks |
 | **Specificity (Benign Control)** | **30/30 (100.0%)** | 100% correct allowance of non-adversarial prompts |
-| **Baseline Recall (Tier 0+1 only)** | **72.8%** | Un-finetuned DeBERTa-v3 + Tier 0 Regex rules |
-| **Red-Team Mutated Recall** | **96.5%** | Measured under 200 adversarial mutation runs |
+| **Full 3-Tier Recall** | **80.0%** | Full cascade including Tier 2 LLM verification |
+| **Tier 0+1 Baseline Recall** | **72.8%** | Un-finetuned DeBERTa-v3 + Tier 0 Regex rules |
+| **Red-Team Mutated Recall** | **97.0%** | Measured under 200 adversarial mutation runs |
 
-> **Adversarial Resilience Note**: In early runs, red-team mutators (like Zero-Width Space insertion, Homoglyphs, and Base64 Evasion) bypassed Tier 1 completely. By implementing a deterministic Tier 0.5 text normalizer (stripping non-printable characters and decoding base64 *before* classification), we completely closed this gap. Our 200-mutant sweep proves the defense actually *improves* under adversarial mutation (72.8% → 96.5%), holding strong against evasion techniques at scale.
+> **Adversarial Resilience Note**: In early runs, red-team mutators (like Zero-Width Space insertion, Homoglyphs, and Base64 Evasion) bypassed Tier 1 completely. By implementing a deterministic Tier 0.5 text normalizer (stripping non-printable characters and decoding base64 *before* classification), we completely closed this gap. Our 200-mutant sweep proves the defense actually *improves* under adversarial mutation (80.0% → 97.0%), holding strong against evasion techniques at scale.
 
 ### 2. OWASP LLM Top 10 Security Coverage
 
@@ -181,7 +192,8 @@ python scripts/red_team.py --corpus attack_samples_v2/manifest.jsonl
 
 ## 🔍 Honest Technical Limitations & Future Roadmap
 
-- **Baseline Recall (72.8%):** While precision is 100% (zero false positives), recall on un-finetuned DeBERTa-v3 is modest without the Tier 2 LLM active. Production deployment requires the full 3-tier funnel active to elevate recall.
+- **Baseline Recall (72.8%):** While precision is 100% (zero false positives), recall on un-finetuned DeBERTa-v3 is modest without the Tier 2 LLM active. Production deployment requires the full 3-tier funnel active to elevate recall to 80.0%.
+- **Resource Exhaustion Vulnerability:** Family 11 (Resource Exhaustion) is our weakest category, catching only 3 of 15 attacks (20% recall) even with the full 3-tier funnel active. This is a known gap and a primary target for future work.
 - **Concurrency Cap (64 concurrent requests):** Saturation of the AMD W7900 48GB HBM memory occurs at concurrency=64 with Qwen-7B. Horizontal pod autoscaling (HPA) is required for larger enterprise scale.
 - **DiffGuard Semgrep Dependency:** DiffGuard utilizes Semgrep for AST code analysis. When Semgrep is absent, it gracefully falls back to deterministic regex pattern scanning.
 
