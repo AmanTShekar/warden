@@ -159,9 +159,9 @@ Warden includes a complete FastAPI web interface featuring **11 interactive navi
 
 ---
 
-## 🚀 Quickstart & Local Execution
+## 🚀 Quickstart & Local Execution (For Judges)
 
-### 1. Installation
+### 1. Installation & Environment Setup
 ```bash
 git clone https://github.com/AmanTShekar/warden.git
 cd warden
@@ -170,13 +170,25 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Run the Web Dashboard
+### 2. Configure Models (.env)
+To run a **100% test** with all 5 tiers active, you must configure the models. Create a `.env` file in the root directory:
+```env
+# Optional: Path to local DeBERTa-v3 model (Tier 1)
+WARDEN_MODEL_DIR=./deberta_clean 
+# Optional: Path to local GGUF model for Tier 2 (e.g. Qwen-7B)
+WARDEN_LLM_PATH=/path/to/your/model.gguf
+# Required for DiffGuard PR scanning
+GITHUB_TOKEN=your_github_token_here
+```
+*(Note: If no models are provided, Warden will gracefully degrade to running Tier 0 and Tier 0.5 only.)*
+
+### 3. Run the Web Dashboard
 ```bash
-python -m ui.web_app
+python -m uvicorn ui.web_app:app --host 0.0.0.0 --port 8080
 # Open browser at http://localhost:8080
 ```
 
-### 3. Run Automated Unit Tests & Benchmarks
+### 4. Run Automated Unit Tests & Benchmarks
 ```bash
 # Run full unit test suite (115 tests)
 pytest tests/ -v
