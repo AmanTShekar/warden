@@ -30,15 +30,17 @@ Warden operates on a 5-tier cascading architecture:
  │ Tier 1: DeBERTa-v3 NLP Classifier (CPU / NPU)                                         │
  │ Scope: Semantic jailbreaks (DAN), Prompt leaks, Roleplay bypasses, Suffix injections  │
  └───────────────────────────────────────────┬───────────────────────────────────────────┘
-                                             │ Confidence < Threshold
+                                             │ Confidence < Threshold (~5% Traffic)
  ┌───────────────────────────────────────────▼───────────────────────────────────────────┐
- │ Tier 2: DiffGuard & CaMeL Tool Interceptor                                            │
- │ Scope: CI/CD Pull Request AST diff scanner & Tool Call Parameter Sandbox              │
- └───────────────────────────────────────────┬───────────────────────────────────────────┘
-                                             │ ~5% Traffic Escalation
- ┌───────────────────────────────────────────▼───────────────────────────────────────────┐
- │ Tier 3: AMD ROCm LLM (AMD Radeon PRO W7900 — 48GB VRAM)                               │
+ │ Tier 2: AMD ROCm LLM (AMD Radeon PRO W7900 — 48GB VRAM)                               │
  │ Scope: Deep context verification & multi-turn semantic reasoning                      │
+ └───────────────────────────────────────────────────────────────────────────────────────┘
+
+=========================================================================================
+                             [ Parallel / Specialized Hooks ]
+ ┌───────────────────────────────────────────────────────────────────────────────────────┐
+ │ DiffGuard (CI/CD)          : AST diff scanner for Git Pull Requests (Semgrep)         │
+ │ CaMeL Tool Sandbox         : Parameter verification for LLM Tool/API execution        │
  └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -46,8 +48,8 @@ Warden operates on a 5-tier cascading architecture:
 
 ### 3. Introduction to Core Capabilities
 Warden is built as a comprehensive local intelligent agent with the following core capabilities:
-- **Adaptive Security Routing:** Dynamically escalates payloads through increasingly complex models only when necessary, maintaining 100% precision (0 false positives) while saving 95% of GPU power.
-- **CaMeL Tool Invocation Sandbox:** Hooks into LLM tool-calling workflows to explicitly verify API and file-read parameters (e.g., blocking `/etc/passwd` reads) before execution.
+- **Adaptive Security Routing:** Dynamically escalates payloads through increasingly complex models (Tier 0 → 0.5 → 1 → 2) only when necessary, maintaining 100% precision (0 false positives) while saving 95% of GPU power.
+- **CaMeL Tool Invocation Sandbox:** Hooks into LLM tool-calling workflows to verify API and file-read parameters (e.g., blocking `/etc/passwd` reads) before execution. *(Note: The full dual-LLM CaMeL routing was descoped to prioritize throughput; only the CaMeL Data-Flow Capability Tracker ships active).*
 - **DiffGuard CI/CD AST Scanning:** Operates directly inside developer workflows to scan Git pull requests and detect hardcoded secrets or adversarial code via Semgrep AST parsing.
 - **Red-Team Mutation Defense:** Prevents adversarial evasion techniques (Base64 encoding, homoglyphs) using a specialized Tier 0.5 text normalizer, achieving a 97.0% catch rate against mutated prompts.
 

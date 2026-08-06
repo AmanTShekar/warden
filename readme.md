@@ -62,15 +62,16 @@ Warden acts as an adaptive-compute reverse proxy. It evaluates incoming traffic 
                                              │ Confidence < Threshold (Unresolved Edge Cases)
                                              ▼
  ┌───────────────────────────────────────────────────────────────────────────────────────┐
- │ Tier 2: DiffGuard & CaMeL Tool Interceptor                                            │
- │ Scope: CI/CD Pull Request AST diff scanner (Semgrep) & Tool Call Parameter Sandbox   │
- └───────────────────────────────────────────┬───────────────────────────────────────────┘
-                                             │ ~5% Traffic Escalation
-                                             ▼
- ┌───────────────────────────────────────────────────────────────────────────────────────┐
- │ Tier 3: AMD ROCm LLM (AMD Radeon PRO W7900 — 48GB VRAM)                               │
+ │ Tier 2: AMD ROCm LLM (AMD Radeon PRO W7900 — 48GB VRAM)                               │
  │ Latency: 1,200ms │  VRAM: 8.4 GB (q8_0) │ Power: 240W (Full TDP)                         │
  │ Scope: Deep context verification & multi-turn semantic reasoning                      │
+ └───────────────────────────────────────────────────────────────────────────────────────┘
+
+=========================================================================================
+                             [ Parallel / Specialized Hooks ]
+ ┌───────────────────────────────────────────────────────────────────────────────────────┐
+ │ DiffGuard (CI/CD)          : AST diff scanner for Git Pull Requests (Semgrep)         │
+ │ CaMeL Tool Sandbox         : Parameter verification for LLM Tool/API execution        │
  └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -97,14 +98,14 @@ All benchmark data is measured on dedicated **AMD Radeon PRO W7900 hardware (48G
 | OWASP Category | Protection Mechanism | Status | Target Tier |
 |----------------|----------------------|--------|-------------|
 | **LLM01 — Prompt Injection** | Tier 0 Regex + Tier 1 DeBERTa Classifier | **Active Guard** | Tier 0 / Tier 1 |
-| **LLM02 — Insecure Output Handling** | CaMeL Tool Call Interceptor | **Active Guard** | Tier 2 |
+| **LLM02 — Insecure Output Handling** | CaMeL Tool Call Interceptor | **Active Guard** | Sandbox |
 | **LLM03 — Training Data Poisoning** | Tier 2 RAG Vector Filtering | **Active Guard** | Tier 2 |
 | **LLM04 — Model Denial of Service** | Physical Core Pinning & Rate Caps | **Active Guard** | Tier 0 |
-| **LLM05 — Supply Chain Vulnerability** | DiffGuard CI/CD AST Scan + Model Lock | **Active Guard** | Tier 2 |
+| **LLM05 — Supply Chain Vulnerability** | DiffGuard CI/CD AST Scan + Model Lock | **Active Guard** | CI/CD Hook |
 | **LLM06 — Sensitive Info Disclosure** | Tier 0 PII Regex + Policy-as-Code Engine | **Active Guard** | Tier 0 / Policy |
-| **LLM07 — Insecure Plugin Design** | CaMeL Sandbox & Policy Engine | **Active Guard** | Tier 2 / Policy |
+| **LLM07 — Insecure Plugin Design** | CaMeL Sandbox & Policy Engine | **Active Guard** | Sandbox / Policy |
 | **LLM08 — Excessive Agency** | Declarative YAML Policy-as-Code | **Active Guard** | Policy Engine |
-| **LLM09 — Overreliance** | Tier 3 Audit Logging & Explanation Output | **Monitored** | Tier 3 |
+| **LLM09 — Overreliance** | Tier 2 Audit Logging & Explanation Output | **Monitored** | Tier 2 |
 | **LLM10 — Model Theft** | Rate Limiting & Signature Tracking | **Active Guard** | Memory / Tier 0 |
 
 
