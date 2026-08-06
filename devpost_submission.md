@@ -50,6 +50,7 @@ The routing engine is built on **FastAPI** with an async task queue. DiffGuard u
 - **Tier 0+1 Baseline Recall**: 72.8%
 - **Full 3-Tier Recall**: 80.0%
 - **Red-Team Mutated Recall**: 97.0% (The pipeline gets *stronger* under evasion techniques due to the deterministic Tier 0.5 text normalizer)
+- **Resource Exhaustion Vulnerability:** Family 11 (Resource Exhaustion) is our weakest category, catching only 3 of 15 attacks (20% recall). This is a real, disclosed gap and a primary target for future work.
 - **OOM at concurrency=64:** The W7900's 48GB VRAM saturates when running 64 concurrent Qwen-7B inference contexts.
 - **Semgrep dependency:** DiffGuard requires Semgrep to be installed. We shipped a regex fallback but it misses semantic patterns.
 
